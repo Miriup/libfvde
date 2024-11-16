@@ -1,0 +1,14 @@
+#
+# This is a configuration file for the Linux udev daemon to change ownership of
+# Apple FileVault2 devices to group "FileVault2".
+# This allows ordinary users in the "FileVault2" group to read (only)
+# FileVault2 devices using the fvde* set of tools.
+#
+# Before you install this configuration file into /etc/udev/rules.d/, the
+# "FileVault2" group needs to be created and your user added to it:
+#
+# groupadd -r FileFault2
+# usermod -a -G FileVault2 $USER
+#
+# ID_FS_TYPE=cs_fvault2
+SUBSYSTEM=="block", ACTION=="add", KERNEL=="sd*", ENV{ID_FS_TYPE}=="cs_fvault2", GROUP="FileVault2", MODE="640"
