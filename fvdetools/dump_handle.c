@@ -1022,9 +1022,12 @@ int dump_handle_write_corrected_metadata(
 	 &( metadata_data[ 64 + 156 ] ),
 	 volume_groups_descriptor_offset );
 
-	if( volume_groups_descriptor_offset > 64 )
+	/* Check if we have a valid volume groups descriptor offset
+	 * The offset should be within the metadata block and leave room for the descriptor fields
+	 */
+	if( ( volume_groups_descriptor_offset > 64 ) &&
+	    ( volume_groups_descriptor_offset + 48 <= dump_handle->metadata_size ) )
 	{
-		uint32_t actual_offset                        = volume_groups_descriptor_offset - 64;
 		uint64_t encrypted_metadata1_block_number     = compact_encrypted_metadata1_offset / dump_handle->block_size;
 		uint64_t encrypted_metadata2_block_number     = compact_encrypted_metadata2_offset / dump_handle->block_size;
 
@@ -1034,6 +1037,10 @@ int dump_handle_write_corrected_metadata(
 			 stdout,
 			 "Correcting %s encrypted metadata offsets:\n",
 			 region_name );
+			fprintf(
+			 stdout,
+			 "  Volume groups descriptor at offset: %" PRIu32 "\n",
+			 volume_groups_descriptor_offset );
 			fprintf(
 			 stdout,
 			 "  Encrypted metadata 1: block %" PRIu64 " (offset 0x%08" PRIx64 ")\n",
@@ -1047,12 +1054,12 @@ int dump_handle_write_corrected_metadata(
 		}
 		/* Write corrected encrypted metadata 1 block number at offset +32 */
 		byte_stream_copy_from_uint64_little_endian(
-		 &( metadata_data[ 64 + actual_offset + 32 ] ),
+		 &( metadata_data[ volume_groups_descriptor_offset + 32 ] ),
 		 encrypted_metadata1_block_number );
 
 		/* Write corrected encrypted metadata 2 block number at offset +40 */
 		byte_stream_copy_from_uint64_little_endian(
-		 &( metadata_data[ 64 + actual_offset + 40 ] ),
+		 &( metadata_data[ volume_groups_descriptor_offset + 40 ] ),
 		 encrypted_metadata2_block_number );
 	}
 	/* Write corrected metadata to destination */
