@@ -22,6 +22,7 @@ AM_LDFLAGS = @STATIC_LDFLAGS@
 
 bin_PROGRAMS = \
 	fvdedump \
+	fvdecheck \
 	fvdeinfo \
 	fvdemount \
 	fvdewipekey
@@ -40,6 +41,37 @@ fvdedump_SOURCES = \
 	fvdetools_unused.h
 
 fvdedump_LDADD = \
+	@LIBBFIO_LIBADD@ \
+	@LIBCPATH_LIBADD@ \
+	@LIBCFILE_LIBADD@ \
+	@LIBUNA_LIBADD@ \
+	@LIBCSPLIT_LIBADD@ \
+	@LIBCDATA_LIBADD@ \
+	../libfvde/libfvde.la \
+	@LIBCNOTIFY_LIBADD@ \
+	@LIBCLOCALE_LIBADD@ \
+	@LIBCERROR_LIBADD@ \
+	@LIBINTL@
+
+fvdecheck_SOURCES = \
+	check_handle.c check_handle.h \
+	fvdecheck.c \
+	fvdecheck_extent.c fvdecheck_extent.h \
+	fvdetools_getopt.c fvdetools_getopt.h \
+	fvdetools_i18n.h \
+	fvdetools_libbfio.h \
+	fvdetools_libcerror.h \
+	fvdetools_libclocale.h \
+	fvdetools_libcnotify.h \
+	fvdetools_libfvde.h \
+	fvdetools_libfguid.h \
+	fvdetools_libuna.h \
+	fvdetools_output.c fvdetools_output.h \
+	fvdetools_signal.c fvdetools_signal.h \
+	fvdetools_unused.h
+
+fvdecheck_LDADD = \
+	@LIBFGUID_LIBADD@ \
 	@LIBBFIO_LIBADD@ \
 	@LIBCPATH_LIBADD@ \
 	@LIBCFILE_LIBADD@ \
@@ -160,6 +192,8 @@ DISTCLEANFILES = \
 splint-local:
 	@echo "Running splint on fvdedump ..."
 	-splint -preproc -redef $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(fvdedump_SOURCES)
+	@echo "Running splint on fvdecheck ..."
+	-splint -preproc -redef $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(fvdecheck_SOURCES)
 	@echo "Running splint on fvdeinfo ..."
 	-splint -preproc -redef $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(fvdeinfo_SOURCES)
 	@echo "Running splint on fvdemount ..."
