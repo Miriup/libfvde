@@ -37,6 +37,10 @@
 #include "fvdetools_libfvde.h"
 #include "fvdetools_libuna.h"
 
+/* Include internal libfvde headers for segment descriptor access */
+#include "../libfvde/libfvde_segment_descriptor.h"
+#include "../libfvde/libfvde_logical_volume_descriptor.h"
+
 #if !defined( LIBFVDE_HAVE_BFIO )
 
 extern \
@@ -55,9 +59,6 @@ int libfvde_volume_open_physical_volume_files_file_io_pool(
 #endif /* !defined( LIBFVDE_HAVE_BFIO ) */
 
 /* External declarations for internal libfvde functions */
-typedef struct libfvde_logical_volume_descriptor libfvde_logical_volume_descriptor_t;
-typedef struct libfvde_segment_descriptor libfvde_segment_descriptor_t;
-
 extern \
 int libfvde_logical_volume_get_logical_volume_descriptor(
      libfvde_logical_volume_t *logical_volume,
