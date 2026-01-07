@@ -129,6 +129,7 @@ stamp-h[1-9]
 /libfvde/libfvde_definitions.h
 /setup.cfg
 /fvdetools/*.exe
+/fvdetools/fvdecheck
 /fvdetools/fvdeinfo
 /fvdetools/fvdemount
 /fvdetools/fvdewipekey
