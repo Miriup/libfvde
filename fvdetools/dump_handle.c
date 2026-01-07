@@ -52,6 +52,68 @@
 /* Volume header size is 512 bytes */
 #define FVDE_VOLUME_HEADER_SIZE 512
 
+/* CRC32 table and calculation for volume header checksum */
+static uint32_t crc32_table[ 256 ];
+static int crc32_table_initialized = 0;
+
+/* Initializes the CRC-32 table for volume header checksum calculation
+ */
+void dump_handle_initialize_crc32_table(
+     uint32_t polynomial )
+{
+	uint32_t checksum    = 0;
+	uint32_t table_index = 0;
+	uint8_t bit_iterator = 0;
+
+	for( table_index = 0;
+	     table_index < 256;
+	     table_index++ )
+	{
+		checksum = (uint32_t) table_index;
+
+		for( bit_iterator = 0;
+		     bit_iterator < 8;
+		     bit_iterator++ )
+		{
+			if( checksum & 1 )
+			{
+				checksum = polynomial ^ ( checksum >> 1 );
+			}
+			else
+			{
+				checksum = checksum >> 1;
+			}
+		}
+		crc32_table[ table_index ] = checksum;
+	}
+	crc32_table_initialized = 1;
+}
+
+/* Calculates weak CRC-32 checksum used for volume header
+ */
+uint32_t dump_handle_calculate_weak_crc32(
+     const uint8_t *buffer,
+     size_t size,
+     uint32_t initial_value )
+{
+	size_t buffer_offset  = 0;
+	uint32_t checksum     = initial_value;
+	uint32_t table_index  = 0;
+
+	if( crc32_table_initialized == 0 )
+	{
+		dump_handle_initialize_crc32_table( 0x82f63b78UL );
+	}
+	for( buffer_offset = 0;
+	     buffer_offset < size;
+	     buffer_offset++ )
+	{
+		table_index = ( checksum ^ buffer[ buffer_offset ] ) & 0x000000ffUL;
+		checksum = crc32_table[ table_index ] ^ ( checksum >> 8 );
+	}
+	return( checksum );
+}
+
 /* Creates a dump handle
  * Make sure the value dump_handle is referencing, is set to NULL
  * Returns 1 if successful or -1 on error
@@ -1111,6 +1173,35 @@ int dump_handle_write_corrected_volume_header(
 			 compact_offset );
 		}
 		compact_offset += dump_handle->metadata_size;
+	}
+	/* Recalculate volume header checksum after modifications */
+	{
+		uint32_t initial_value      = 0;
+		uint32_t calculated_checksum = 0;
+
+		/* Read initial value from offset 4 */
+		byte_stream_copy_to_uint32_little_endian(
+		 &( volume_header_data[ 4 ] ),
+		 initial_value );
+
+		/* Calculate checksum on bytes 8-511 (504 bytes) */
+		calculated_checksum = dump_handle_calculate_weak_crc32(
+		                       &( volume_header_data[ 8 ] ),
+		                       504,
+		                       initial_value );
+
+		/* Write corrected checksum at offset 0 */
+		byte_stream_copy_from_uint32_little_endian(
+		 &( volume_header_data[ 0 ] ),
+		 calculated_checksum );
+
+		if( dump_handle->verbose != 0 )
+		{
+			fprintf(
+			 stdout,
+			 "Recalculated volume header checksum: 0x%08" PRIx32 "\n",
+			 calculated_checksum );
+		}
 	}
 	/* Write corrected volume header to destination */
 	if( lseek( dump_handle->destination_fd, 0, SEEK_SET ) == (off_t) -1 )
