@@ -1107,7 +1107,7 @@ int dump_handle_write_corrected_volume_header(
 {
 	uint8_t volume_header_data[ FVDE_VOLUME_HEADER_SIZE ];
 	static char *function     = "dump_handle_write_corrected_volume_header";
-	uint64_t compact_offset   = 512;
+	uint64_t compact_block    = 1;  /* Start at block 1 (block 0 contains volume header) */
 	ssize_t read_count        = 0;
 	ssize_t write_count       = 0;
 	int metadata_index        = 0;
@@ -1151,12 +1151,15 @@ int dump_handle_write_corrected_volume_header(
 
 		return( -1 );
 	}
-	/* Update metadata block offsets for compact layout */
+	/* Update metadata block offsets for compact layout
+	 * Metadata blocks must be aligned to block boundaries (4096-byte blocks)
+	 * Block 0 contains the volume header, so start metadata at block 1
+	 */
 	for( metadata_index = 0;
 	     metadata_index < 4;
 	     metadata_index++ )
 	{
-		uint64_t metadata_block_number = compact_offset / dump_handle->block_size;
+		uint64_t metadata_block_number = compact_block;
 
 		/* Write block number at offset 104 + (metadata_index * 8) */
 		byte_stream_copy_from_uint64_little_endian(
@@ -1170,9 +1173,10 @@ int dump_handle_write_corrected_volume_header(
 			 "Correcting metadata %d block number: %" PRIu64 " (offset 0x%08" PRIx64 ")\n",
 			 metadata_index + 1,
 			 metadata_block_number,
-			 compact_offset );
+			 metadata_block_number * dump_handle->block_size );
 		}
-		compact_offset += dump_handle->metadata_size;
+		/* Calculate how many blocks this metadata occupies */
+		compact_block += ( dump_handle->metadata_size + dump_handle->block_size - 1 ) / dump_handle->block_size;
 	}
 	/* Recalculate volume header checksum after modifications */
 	{
@@ -1302,7 +1306,10 @@ int dump_handle_dump(
 
 			return( -1 );
 		}
-		current_offset += FVDE_VOLUME_HEADER_SIZE;
+		/* In compact mode, metadata blocks must be block-aligned
+		 * Start at block 1 (offset 4096) since block 0 contains volume header
+		 */
+		current_offset = dump_handle->block_size;
 	}
 	else
 	{
@@ -1338,8 +1345,11 @@ int dump_handle_dump(
 
 		if( dump_handle->compact != 0 )
 		{
-			/* In compact mode, write corrected metadata with adjusted encrypted metadata offsets */
-			uint64_t compact_encrypted_metadata1_offset = 512 + ( 4 * dump_handle->metadata_size );
+			/* In compact mode, write corrected metadata with adjusted encrypted metadata offsets
+			 * Metadata starts at block 1 (offset = block_size), so encrypted metadata
+			 * starts after 4 metadata blocks
+			 */
+			uint64_t compact_encrypted_metadata1_offset = dump_handle->block_size + ( 4 * dump_handle->metadata_size );
 			uint64_t compact_encrypted_metadata2_offset = compact_encrypted_metadata1_offset + dump_handle->encrypted_metadata_size;
 
 			if( dump_handle_write_corrected_metadata(
