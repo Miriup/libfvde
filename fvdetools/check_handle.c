@@ -44,6 +44,7 @@
 /* Forward declarations for internal libfvde structures */
 typedef struct libfvde_volume_header libfvde_volume_header_t;
 typedef struct libfvde_metadata libfvde_metadata_t;
+typedef struct libfvde_internal_volume libfvde_internal_volume_t;
 
 /* Minimal internal structure definitions needed for metadata access */
 struct libfvde_volume_header
