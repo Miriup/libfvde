@@ -49,25 +49,61 @@ typedef struct libfvde_internal_volume libfvde_internal_volume_t;
 /* Minimal internal structure definitions needed for metadata access */
 struct libfvde_volume_header
 {
-	uint8_t signature[ 8 ];
-	uint32_t checksum;
-	uint32_t initial_value;
+	/* The serial number */
+	uint32_t serial_number;
+
+	/* The number of bytes per sector */
+	uint32_t bytes_per_sector;
+
+	/* The physical volume size */
 	uint64_t physical_volume_size;
-	uint64_t unknown1;
-	uint64_t unknown2;
-	uint8_t physical_volume_identifier[ 16 ];
+
+	/* The block size */
 	uint32_t block_size;
-	uint64_t metadata_size;
+
+	/* The metadata size */
+	uint32_t metadata_size;
+
+	/* The metadata offsets */
 	uint64_t metadata_offsets[ 4 ];
+
+	/* The encryption method of the physical volume */
+	uint32_t physical_volume_encryption_method;
+
+	/* The key data */
+	uint8_t key_data[ 16 ];
+
+	/* The physical volume identifier */
+	uint8_t physical_volume_identifier[ 16 ];
+
+	/* The volume group identifier */
+	uint8_t volume_group_identifier[ 16 ];
 };
 
 struct libfvde_metadata
 {
-	uint64_t encrypted_metadata1_offset;
-	uint16_t encrypted_metadata1_volume_index;
-	uint64_t encrypted_metadata2_offset;
-	uint16_t encrypted_metadata2_volume_index;
+	/* The transaction identifier */
+	uint64_t transaction_identifier;
+
+	/* The physical volume index */
+	uint16_t physical_volume_index;
+
+	/* The encrypted metadata size */
 	uint64_t encrypted_metadata_size;
+
+	/* The encrypted metadata 1 offset */
+	uint64_t encrypted_metadata1_offset;
+
+	/* The encrypted metadata 1 (physical) volume index */
+	uint16_t encrypted_metadata1_volume_index;
+
+	/* The encrypted metadata 2 offset */
+	uint64_t encrypted_metadata2_offset;
+
+	/* The encrypted metadata 2 (physical) volume index */
+	uint16_t encrypted_metadata2_volume_index;
+
+	/* Additional fields exist but we don't need to list them all */
 };
 
 struct libfvde_internal_volume
