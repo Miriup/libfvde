@@ -40,6 +40,10 @@
 #include <unistd.h>
 #endif
 
+#if defined( HAVE_GETOPT_H )
+#include <getopt.h>
+#endif
+
 #include "check_handle.h"
 #include "fvdetools_getopt.h"
 #include "fvdetools_i18n.h"
