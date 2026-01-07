@@ -3127,3 +3127,43 @@ int libfvde_logical_volume_set_utf16_recovery_password(
 	return( result );
 }
 
+
+/* Retrieves the logical volume descriptor
+ * Returns 1 if successful or -1 on error
+ */
+int libfvde_logical_volume_get_logical_volume_descriptor(
+     libfvde_logical_volume_t *logical_volume,
+     libfvde_logical_volume_descriptor_t **logical_volume_descriptor,
+     libcerror_error_t **error )
+{
+	libfvde_internal_logical_volume_t *internal_logical_volume = NULL;
+	static char *function                                      = "libfvde_logical_volume_get_logical_volume_descriptor";
+
+	if( logical_volume == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid logical volume.",
+		 function );
+
+		return( -1 );
+	}
+	internal_logical_volume = (libfvde_internal_logical_volume_t *) logical_volume;
+
+	if( logical_volume_descriptor == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid logical volume descriptor.",
+		 function );
+
+		return( -1 );
+	}
+	*logical_volume_descriptor = internal_logical_volume->logical_volume_descriptor;
+
+	return( 1 );
+}

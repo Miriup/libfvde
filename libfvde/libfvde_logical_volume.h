@@ -293,6 +293,14 @@ int libfvde_logical_volume_set_utf16_recovery_password(
      size_t utf16_string_length,
      libcerror_error_t **error );
 
+/* Retrieves the logical volume descriptor
+ * Returns 1 if successful or -1 on error
+ */
+int libfvde_logical_volume_get_logical_volume_descriptor(
+     libfvde_logical_volume_t *logical_volume,
+     libfvde_logical_volume_descriptor_t **logical_volume_descriptor,
+     libcerror_error_t **error );
+
 #if defined( __cplusplus )
 }
 #endif

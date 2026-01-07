@@ -544,6 +544,17 @@ int main( int argc, char * const argv[] )
 		 "Block size: %" PRIu32 " bytes\n",
 		 fvdecheck_check_handle->volume_state->block_size );
 	}
+	/* Process volume to build extent map */
+	if( check_handle_process_volume(
+	     fvdecheck_check_handle,
+	     &error ) != 1 )
+	{
+		fprintf(
+		 stderr,
+		 "Unable to process volume.\n" );
+
+		goto on_error;
+	}
 	/* Perform block lookup if requested */
 	if( fvdecheck_check_handle->lookup_linux_sector_set )
 	{

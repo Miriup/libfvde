@@ -54,6 +54,29 @@ int libfvde_volume_open_physical_volume_files_file_io_pool(
 
 #endif /* !defined( LIBFVDE_HAVE_BFIO ) */
 
+/* External declarations for internal libfvde functions */
+typedef struct libfvde_logical_volume_descriptor libfvde_logical_volume_descriptor_t;
+typedef struct libfvde_segment_descriptor libfvde_segment_descriptor_t;
+
+extern \
+int libfvde_logical_volume_get_logical_volume_descriptor(
+     libfvde_logical_volume_t *logical_volume,
+     libfvde_logical_volume_descriptor_t **logical_volume_descriptor,
+     libcerror_error_t **error );
+
+extern \
+int libfvde_logical_volume_descriptor_get_number_of_segment_descriptors(
+     libfvde_logical_volume_descriptor_t *logical_volume_descriptor,
+     int *number_of_segment_descriptors,
+     libcerror_error_t **error );
+
+extern \
+int libfvde_logical_volume_descriptor_get_segment_descriptor_by_index(
+     libfvde_logical_volume_descriptor_t *logical_volume_descriptor,
+     int segment_descriptor_index,
+     libfvde_segment_descriptor_t **segment_descriptor,
+     libcerror_error_t **error );
+
 #define CHECK_HANDLE_NOTIFY_STREAM		stdout
 
 /* Copies a string of a decimal value to a 64-bit value
@@ -1596,6 +1619,204 @@ int check_handle_close(
 		}
 	}
 	return( result );
+}
+
+/* Process volume and build extent state
+ * Returns 1 if successful or -1 on error
+ */
+int check_handle_process_volume(
+     check_handle_t *check_handle,
+     libcerror_error_t **error )
+{
+	libfvde_logical_volume_t *logical_volume = NULL;
+	libfvde_logical_volume_descriptor_t *logical_volume_descriptor = NULL;
+	libfvde_segment_descriptor_t *segment_descriptor = NULL;
+	static char *function              = "check_handle_process_volume";
+	uint32_t lv_index                  = 0;
+	uint32_t pv_index                  = 0;
+	int logical_volume_index           = 0;
+	int number_of_logical_volumes      = 0;
+	int number_of_segment_descriptors  = 0;
+	int segment_descriptor_index       = 0;
+
+	if( check_handle == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid check handle.",
+		 function );
+
+		return( -1 );
+	}
+	if( check_handle->volume_group == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_VALUE_MISSING,
+		 "%s: invalid check handle - missing volume group.",
+		 function );
+
+		return( -1 );
+	}
+	/* Get number of logical volumes */
+	if( libfvde_volume_group_get_number_of_logical_volumes(
+	     check_handle->volume_group,
+	     &number_of_logical_volumes,
+	     error ) != 1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+		 "%s: unable to retrieve number of logical volumes.",
+		 function );
+
+		return( -1 );
+	}
+	/* Process each logical volume */
+	for( logical_volume_index = 0;
+	     logical_volume_index < number_of_logical_volumes;
+	     logical_volume_index++ )
+	{
+		if( libfvde_volume_group_get_logical_volume_by_index(
+		     check_handle->volume_group,
+		     logical_volume_index,
+		     &logical_volume,
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+			 "%s: unable to retrieve logical volume: %d.",
+			 function,
+			 logical_volume_index );
+
+			goto on_error;
+		}
+		/* Get the logical volume descriptor which contains segment descriptors */
+		if( libfvde_logical_volume_get_logical_volume_descriptor(
+		     logical_volume,
+		     &logical_volume_descriptor,
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+			 "%s: unable to retrieve logical volume descriptor for volume: %d.",
+			 function,
+			 logical_volume_index );
+
+			goto on_error;
+		}
+		if( logical_volume_descriptor == NULL )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_VALUE_MISSING,
+			 "%s: missing logical volume descriptor for volume: %d.",
+			 function,
+			 logical_volume_index );
+
+			goto on_error;
+		}
+		/* Get number of segment descriptors (extent mappings) */
+		if( libfvde_logical_volume_descriptor_get_number_of_segment_descriptors(
+		     logical_volume_descriptor,
+		     &number_of_segment_descriptors,
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+			 "%s: unable to retrieve number of segment descriptors.",
+			 function );
+
+			goto on_error;
+		}
+		/* Process each segment descriptor (extent mapping) */
+		for( segment_descriptor_index = 0;
+		     segment_descriptor_index < number_of_segment_descriptors;
+		     segment_descriptor_index++ )
+		{
+			if( libfvde_logical_volume_descriptor_get_segment_descriptor_by_index(
+			     logical_volume_descriptor,
+			     segment_descriptor_index,
+			     &segment_descriptor,
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+				 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+				 "%s: unable to retrieve segment descriptor: %d.",
+				 function,
+				 segment_descriptor_index );
+
+				goto on_error;
+			}
+			if( segment_descriptor == NULL )
+			{
+				continue;
+			}
+			/* Map the segment descriptor to our volume state indices */
+			pv_index = (uint32_t) segment_descriptor->physical_volume_index;
+			lv_index = (uint32_t) logical_volume_index;
+
+			/* Mark the extent as allocated */
+			if( fvdecheck_volume_state_mark_allocated(
+			     check_handle->volume_state,
+			     pv_index,
+			     segment_descriptor->physical_block_number,
+			     segment_descriptor->number_of_blocks,
+			     lv_index,
+			     segment_descriptor->logical_block_number,
+			     0,  /* transaction_id - not tracked for now */
+			     0,  /* metadata_block_index - not tracked for now */
+			     0x0305,  /* block_type - using 0x0305 as generic allocation */
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+				 LIBCERROR_RUNTIME_ERROR_SET_FAILED,
+				 "%s: unable to mark extent as allocated.",
+				 function );
+
+				goto on_error;
+			}
+		}
+		if( libfvde_logical_volume_free(
+		     &logical_volume,
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_FINALIZE_FAILED,
+			 "%s: unable to free logical volume: %d.",
+			 function,
+			 logical_volume_index );
+
+			goto on_error;
+		}
+	}
+	return( 1 );
+
+on_error:
+	if( logical_volume != NULL )
+	{
+		libfvde_logical_volume_free(
+		 &logical_volume,
+		 NULL );
+	}
+	return( -1 );
 }
 
 /* Prints an UUID value
