@@ -1999,11 +1999,15 @@ int check_handle_process_volume(
 			pv_index = (uint32_t) segment_descriptor->physical_volume_index;
 			lv_index = (uint32_t) logical_volume_index;
 
+			/* Calculate actual physical block number by adding base offset */
+			uint64_t actual_physical_block = logical_volume_descriptor->base_physical_block_number +
+			                                  segment_descriptor->physical_block_number;
+
 			/* Mark the extent as allocated */
 			if( fvdecheck_volume_state_mark_allocated(
 			     check_handle->volume_state,
 			     pv_index,
-			     segment_descriptor->physical_block_number,
+			     actual_physical_block,
 			     segment_descriptor->number_of_blocks,
 			     lv_index,
 			     segment_descriptor->logical_block_number,
