@@ -37,12 +37,44 @@
 #include "fvdetools_libfvde.h"
 #include "fvdetools_libuna.h"
 
-/* Include internal libfvde headers for segment descriptor and metadata access */
+/* Include internal libfvde headers for segment descriptor access */
 #include "../libfvde/libfvde_segment_descriptor.h"
 #include "../libfvde/libfvde_logical_volume_descriptor.h"
-#include "../libfvde/libfvde_volume.h"
-#include "../libfvde/libfvde_volume_header.h"
-#include "../libfvde/libfvde_metadata.h"
+
+/* Forward declarations for internal libfvde structures */
+typedef struct libfvde_volume_header libfvde_volume_header_t;
+typedef struct libfvde_metadata libfvde_metadata_t;
+
+/* Minimal internal structure definitions needed for metadata access */
+struct libfvde_volume_header
+{
+	uint8_t signature[ 8 ];
+	uint32_t checksum;
+	uint32_t initial_value;
+	uint64_t physical_volume_size;
+	uint64_t unknown1;
+	uint64_t unknown2;
+	uint8_t physical_volume_identifier[ 16 ];
+	uint32_t block_size;
+	uint64_t metadata_size;
+	uint64_t metadata_offsets[ 4 ];
+};
+
+struct libfvde_metadata
+{
+	uint64_t encrypted_metadata1_offset;
+	uint16_t encrypted_metadata1_volume_index;
+	uint64_t encrypted_metadata2_offset;
+	uint16_t encrypted_metadata2_volume_index;
+	uint64_t encrypted_metadata_size;
+};
+
+struct libfvde_internal_volume
+{
+	libfvde_volume_header_t *volume_header;
+	libfvde_metadata_t *metadata;
+	/* Additional fields exist but we don't need to list them all */
+};
 
 #if !defined( LIBFVDE_HAVE_BFIO )
 
