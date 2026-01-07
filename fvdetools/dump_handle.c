@@ -1078,7 +1078,7 @@ int dump_handle_write_corrected_metadata(
 			uint32_t initial_value = 0xffffffffUL;
 			uint32_t calculated_checksum = dump_handle_calculate_weak_crc32(
 			                                &( metadata_data[ 8 ] ),
-			                                dump_handle->metadata_size - 8,
+			                                8184,
 			                                initial_value );
 
 			/* Write the recalculated checksum */
