@@ -37,9 +37,12 @@
 #include "fvdetools_libfvde.h"
 #include "fvdetools_libuna.h"
 
-/* Include internal libfvde headers for segment descriptor access */
+/* Include internal libfvde headers for segment descriptor and metadata access */
 #include "../libfvde/libfvde_segment_descriptor.h"
 #include "../libfvde/libfvde_logical_volume_descriptor.h"
+#include "../libfvde/libfvde_volume.h"
+#include "../libfvde/libfvde_volume_header.h"
+#include "../libfvde/libfvde_metadata.h"
 
 #if !defined( LIBFVDE_HAVE_BFIO )
 
@@ -1622,6 +1625,149 @@ int check_handle_close(
 	return( result );
 }
 
+/* Mark metadata regions as reserved
+ * Returns 1 if successful or -1 on error
+ */
+int check_handle_mark_metadata_reserved(
+     check_handle_t *check_handle,
+     libcerror_error_t **error )
+{
+	static const char *metadata_descriptions[ 4 ] = {
+		"Metadata block 1",
+		"Metadata block 2",
+		"Metadata block 3",
+		"Metadata block 4"
+	};
+	libfvde_internal_volume_t *internal_volume = NULL;
+	static char *function                      = "check_handle_mark_metadata_reserved";
+	uint64_t metadata_size                     = 0;
+	uint32_t pv_index                          = 0;
+	int metadata_index                         = 0;
+
+	if( check_handle == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid check handle.",
+		 function );
+
+		return( -1 );
+	}
+	if( check_handle->volume == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_VALUE_MISSING,
+		 "%s: invalid check handle - missing volume.",
+		 function );
+
+		return( -1 );
+	}
+	/* Cast to internal volume to access metadata offsets */
+	internal_volume = (libfvde_internal_volume_t *) check_handle->volume;
+
+	if( internal_volume->volume_header == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_VALUE_MISSING,
+		 "%s: invalid volume - missing volume header.",
+		 function );
+
+		return( -1 );
+	}
+	/* Get metadata size from volume header */
+	metadata_size = internal_volume->volume_header->metadata_size;
+
+	/* Mark the 4 metadata block regions as reserved */
+	for( metadata_index = 0;
+	     metadata_index < 4;
+	     metadata_index++ )
+	{
+		uint64_t metadata_offset = internal_volume->volume_header->metadata_offsets[ metadata_index ];
+		uint64_t metadata_start_block = metadata_offset / check_handle->volume_state->block_size;
+		uint64_t metadata_block_count = metadata_size / check_handle->volume_state->block_size;
+
+		if( fvdecheck_volume_state_mark_reserved(
+		     check_handle->volume_state,
+		     pv_index,
+		     metadata_start_block,
+		     metadata_block_count,
+		     metadata_descriptions[ metadata_index ],
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_SET_FAILED,
+			 "%s: unable to mark metadata block %d as reserved.",
+			 function,
+			 metadata_index + 1 );
+
+			return( -1 );
+		}
+	}
+	/* Mark encrypted metadata regions if available */
+	if( internal_volume->metadata != NULL )
+	{
+		uint64_t encrypted_metadata_size = internal_volume->metadata->encrypted_metadata_size;
+		uint64_t encrypted_metadata1_offset = internal_volume->metadata->encrypted_metadata1_offset;
+		uint64_t encrypted_metadata2_offset = internal_volume->metadata->encrypted_metadata2_offset;
+
+		if( encrypted_metadata1_offset > 0 && encrypted_metadata_size > 0 )
+		{
+			uint64_t start_block = encrypted_metadata1_offset / check_handle->volume_state->block_size;
+			uint64_t block_count = encrypted_metadata_size / check_handle->volume_state->block_size;
+
+			if( fvdecheck_volume_state_mark_reserved(
+			     check_handle->volume_state,
+			     pv_index,
+			     start_block,
+			     block_count,
+			     "Encrypted metadata 1",
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+				 LIBCERROR_RUNTIME_ERROR_SET_FAILED,
+				 "%s: unable to mark encrypted metadata 1 as reserved.",
+				 function );
+
+				return( -1 );
+			}
+		}
+		if( encrypted_metadata2_offset > 0 && encrypted_metadata_size > 0 )
+		{
+			uint64_t start_block = encrypted_metadata2_offset / check_handle->volume_state->block_size;
+			uint64_t block_count = encrypted_metadata_size / check_handle->volume_state->block_size;
+
+			if( fvdecheck_volume_state_mark_reserved(
+			     check_handle->volume_state,
+			     pv_index,
+			     start_block,
+			     block_count,
+			     "Encrypted metadata 2",
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+				 LIBCERROR_RUNTIME_ERROR_SET_FAILED,
+				 "%s: unable to mark encrypted metadata 2 as reserved.",
+				 function );
+
+				return( -1 );
+			}
+		}
+	}
+	return( 1 );
+}
+
 /* Process volume and build extent state
  * Returns 1 if successful or -1 on error
  */
@@ -1658,6 +1804,20 @@ int check_handle_process_volume(
 		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
 		 LIBCERROR_RUNTIME_ERROR_VALUE_MISSING,
 		 "%s: invalid check handle - missing volume group.",
+		 function );
+
+		return( -1 );
+	}
+	/* Mark metadata regions as reserved */
+	if( check_handle_mark_metadata_reserved(
+	     check_handle,
+	     error ) != 1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_SET_FAILED,
+		 "%s: unable to mark metadata regions as reserved.",
 		 function );
 
 		return( -1 );

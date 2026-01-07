@@ -244,6 +244,11 @@ int check_handle_close(
      check_handle_t *check_handle,
      libcerror_error_t **error );
 
+/* Mark metadata regions as reserved */
+int check_handle_mark_metadata_reserved(
+     check_handle_t *check_handle,
+     libcerror_error_t **error );
+
 /* Process volume and build extent state */
 int check_handle_process_volume(
      check_handle_t *check_handle,
