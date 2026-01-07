@@ -296,11 +296,17 @@ AC_DEFUN([AX_COMMON_CHECK_LOCAL],
   dnl Headers included in common/memory.h and common/narrow_string.h
   AC_CHECK_HEADERS([stdlib.h string.h])
 
+  dnl Headers used for option parsing in tools
+  AC_CHECK_HEADERS([getopt.h])
+
   dnl Headers included in common/wide_string.h
   AC_CHECK_HEADERS([wchar.h wctype.h])
 
   dnl File stream functions used in common/file_stream.h
   AC_CHECK_FUNCS([fclose feof fgets fopen fread fseeko fseeko64 fwrite vfprintf])
+
+  dnl Option parsing functions used in tools
+  AC_CHECK_FUNCS([getopt getopt_long])
 
   AS_IF(
     [test "x$ac_cv_func_fclose" != xyes],
