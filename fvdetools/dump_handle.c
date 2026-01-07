@@ -1028,6 +1028,14 @@ int dump_handle_write_corrected_metadata(
 	/* Check if we have a valid volume groups descriptor offset
 	 * The offset should be >= 248 and <= metadata_size (matching libfvde's validation)
 	 */
+	if( dump_handle->verbose != 0 )
+	{
+		fprintf(
+		 stdout,
+		 "Checking %s: volume_groups_descriptor_offset = %" PRIu32 "\n",
+		 region_name,
+		 volume_groups_descriptor_offset );
+	}
 	if( ( volume_groups_descriptor_offset >= 248 )
 	 && ( volume_groups_descriptor_offset <= dump_handle->metadata_size ) )
 	{
@@ -1038,6 +1046,18 @@ int dump_handle_write_corrected_metadata(
 		/* Verify the actual offset + field offsets are within our buffer */
 		if( ( 64 + actual_offset + 48 <= dump_handle->metadata_size ) )
 		{
+			uint64_t old_encrypted_metadata1_offset = 0;
+			uint64_t old_encrypted_metadata2_offset = 0;
+
+			/* Read OLD values before modifying */
+			byte_stream_copy_to_uint64_little_endian(
+			 &( metadata_data[ 64 + actual_offset + 32 ] ),
+			 old_encrypted_metadata1_offset );
+
+			byte_stream_copy_to_uint64_little_endian(
+			 &( metadata_data[ 64 + actual_offset + 40 ] ),
+			 old_encrypted_metadata2_offset );
+
 			if( dump_handle->verbose != 0 )
 			{
 				fprintf(
@@ -1046,17 +1066,33 @@ int dump_handle_write_corrected_metadata(
 				 region_name );
 				fprintf(
 				 stdout,
-				 "  Volume groups descriptor at offset: %" PRIu32 " (buffer offset: %" PRIu32 ")\n",
-				 volume_groups_descriptor_offset,
-				 64 + actual_offset );
+				 "  Volume groups descriptor offset: %" PRIu32 " (relative to full block)\n",
+				 volume_groups_descriptor_offset );
 				fprintf(
 				 stdout,
-				 "  Encrypted metadata 1: block %" PRIu64 " (offset 0x%08" PRIx64 ")\n",
+				 "  Actual offset (minus 64-byte header): %" PRIu32 "\n",
+				 actual_offset );
+				fprintf(
+				 stdout,
+				 "  Writing to buffer offsets: [%" PRIu32 "] and [%" PRIu32 "]\n",
+				 64 + actual_offset + 32,
+				 64 + actual_offset + 40 );
+				fprintf(
+				 stdout,
+				 "  OLD encrypted metadata 1 block: 0x%016" PRIx64 "\n",
+				 old_encrypted_metadata1_offset );
+				fprintf(
+				 stdout,
+				 "  NEW encrypted metadata 1 block: 0x%016" PRIx64 " (offset 0x%08" PRIx64 ")\n",
 				 encrypted_metadata1_block_number,
 				 compact_encrypted_metadata1_offset );
 				fprintf(
 				 stdout,
-				 "  Encrypted metadata 2: block %" PRIu64 " (offset 0x%08" PRIx64 ")\n",
+				 "  OLD encrypted metadata 2 block: 0x%016" PRIx64 "\n",
+				 old_encrypted_metadata2_offset );
+				fprintf(
+				 stdout,
+				 "  NEW encrypted metadata 2 block: 0x%016" PRIx64 " (offset 0x%08" PRIx64 ")\n",
 				 encrypted_metadata2_block_number,
 				 compact_encrypted_metadata2_offset );
 			}
@@ -1094,6 +1130,17 @@ int dump_handle_write_corrected_metadata(
 				 "  Recalculated metadata block checksum: 0x%08" PRIx32 "\n",
 				 calculated_checksum );
 			}
+		}
+	}
+	else
+	{
+		if( dump_handle->verbose != 0 )
+		{
+			fprintf(
+			 stdout,
+			 "  Skipping %s: invalid descriptor offset (expected >= 248 and <= %" PRIu32 ")\n",
+			 region_name,
+			 dump_handle->metadata_size );
 		}
 	}
 	/* Write corrected metadata to destination */
