@@ -2485,6 +2485,8 @@ int check_handle_print_allocation_map(
 	     pv_index < check_handle->volume_state->num_physical_volumes;
 	     pv_index++ )
 	{
+		uint64_t expected_next_block = 0;
+
 		fprintf(
 		 check_handle->notify_stream,
 		 "\nPhysical Volume %" PRIu32 " Extents:\n",
@@ -2495,6 +2497,20 @@ int check_handle_print_allocation_map(
 
 		while( extent != NULL )
 		{
+			/* Check for gap before this extent */
+			if( extent->physical_block_start > expected_next_block )
+			{
+				uint64_t gap_size = extent->physical_block_start - expected_next_block;
+
+				fprintf(
+				 check_handle->notify_stream,
+				 "  [%-9s] blocks %" PRIu64 "-%" PRIu64 " (%" PRIu64 " blocks)\n",
+				 "UNKNOWN",
+				 expected_next_block,
+				 extent->physical_block_start - 1,
+				 gap_size );
+			}
+
 			fprintf(
 			 check_handle->notify_stream,
 			 "  [%-9s] blocks %" PRIu64 "-%" PRIu64 " (%" PRIu64 " blocks)",
@@ -2521,6 +2537,9 @@ int check_handle_print_allocation_map(
 			}
 			fprintf( check_handle->notify_stream, "\n" );
 
+			/* Update expected next block */
+			expected_next_block = extent->physical_block_start + extent->physical_block_count;
+
 			extent = extent->phys_next;
 			extent_count++;
 
@@ -2534,6 +2553,19 @@ int check_handle_print_allocation_map(
 
 				break;
 			}
+		}
+		/* Check for gap after last extent to end of volume */
+		if( expected_next_block < check_handle->volume_state->physical_volumes[ pv_index ].size_in_blocks )
+		{
+			uint64_t gap_size = check_handle->volume_state->physical_volumes[ pv_index ].size_in_blocks - expected_next_block;
+
+			fprintf(
+			 check_handle->notify_stream,
+			 "  [%-9s] blocks %" PRIu64 "-%" PRIu64 " (%" PRIu64 " blocks)\n",
+			 "UNKNOWN",
+			 expected_next_block,
+			 check_handle->volume_state->physical_volumes[ pv_index ].size_in_blocks - 1,
+			 gap_size );
 		}
 	}
 	return( 1 );
