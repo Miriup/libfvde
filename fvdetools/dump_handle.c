@@ -1026,9 +1026,10 @@ int dump_handle_write_corrected_metadata(
 	 volume_groups_descriptor_offset );
 
 	/* Check if we have a valid volume groups descriptor offset
-	 * The offset should be > 64 (past the block header) and within bounds
+	 * The offset should be >= 248 and <= metadata_size (matching libfvde's validation)
 	 */
-	if( volume_groups_descriptor_offset > 64 )
+	if( ( volume_groups_descriptor_offset >= 248 )
+	 && ( volume_groups_descriptor_offset <= dump_handle->metadata_size ) )
 	{
 		uint32_t actual_offset = volume_groups_descriptor_offset - 64;
 		uint64_t encrypted_metadata1_block_number = compact_encrypted_metadata1_offset / dump_handle->block_size;
