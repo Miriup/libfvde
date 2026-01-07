@@ -883,6 +883,268 @@ on_error:
 	return( -1 );
 }
 
+/* Writes metadata block with corrected encrypted metadata offsets for compact dumps
+ * Returns 1 if successful or -1 on error
+ */
+int dump_handle_write_corrected_metadata(
+     dump_handle_t *dump_handle,
+     off64_t source_offset,
+     off64_t destination_offset,
+     uint64_t compact_encrypted_metadata1_offset,
+     uint64_t compact_encrypted_metadata2_offset,
+     const char *region_name,
+     libcerror_error_t **error )
+{
+	uint8_t *metadata_data                   = NULL;
+	static char *function                    = "dump_handle_write_corrected_metadata";
+	uint32_t volume_groups_descriptor_offset = 0;
+	ssize_t read_count                       = 0;
+	ssize_t write_count                      = 0;
+
+	if( dump_handle == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid dump handle.",
+		 function );
+
+		return( -1 );
+	}
+	metadata_data = (uint8_t *) memory_allocate(
+	                             dump_handle->metadata_size );
+
+	if( metadata_data == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_MEMORY,
+		 LIBCERROR_MEMORY_ERROR_INSUFFICIENT,
+		 "%s: unable to create metadata buffer.",
+		 function );
+
+		return( -1 );
+	}
+	/* Read metadata from source */
+	if( lseek( dump_handle->source_fd, source_offset, SEEK_SET ) == (off_t) -1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_SEEK_FAILED,
+		 "%s: unable to seek to source offset: 0x%08" PRIx64 ".",
+		 function,
+		 source_offset );
+
+		goto on_error;
+	}
+	read_count = read(
+	              dump_handle->source_fd,
+	              metadata_data,
+	              dump_handle->metadata_size );
+
+	if( read_count != (ssize_t) dump_handle->metadata_size )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_READ_FAILED,
+		 "%s: unable to read metadata.",
+		 function );
+
+		goto on_error;
+	}
+	/* Read volume groups descriptor offset at 64 + 156 = 220 */
+	byte_stream_copy_to_uint32_little_endian(
+	 &( metadata_data[ 64 + 156 ] ),
+	 volume_groups_descriptor_offset );
+
+	if( volume_groups_descriptor_offset > 64 )
+	{
+		uint32_t actual_offset                        = volume_groups_descriptor_offset - 64;
+		uint64_t encrypted_metadata1_block_number     = compact_encrypted_metadata1_offset / dump_handle->block_size;
+		uint64_t encrypted_metadata2_block_number     = compact_encrypted_metadata2_offset / dump_handle->block_size;
+
+		if( dump_handle->verbose != 0 )
+		{
+			fprintf(
+			 stdout,
+			 "Correcting %s encrypted metadata offsets:\n",
+			 region_name );
+			fprintf(
+			 stdout,
+			 "  Encrypted metadata 1: block %" PRIu64 " (offset 0x%08" PRIx64 ")\n",
+			 encrypted_metadata1_block_number,
+			 compact_encrypted_metadata1_offset );
+			fprintf(
+			 stdout,
+			 "  Encrypted metadata 2: block %" PRIu64 " (offset 0x%08" PRIx64 ")\n",
+			 encrypted_metadata2_block_number,
+			 compact_encrypted_metadata2_offset );
+		}
+		/* Write corrected encrypted metadata 1 block number at offset +32 */
+		byte_stream_copy_from_uint64_little_endian(
+		 &( metadata_data[ 64 + actual_offset + 32 ] ),
+		 encrypted_metadata1_block_number );
+
+		/* Write corrected encrypted metadata 2 block number at offset +40 */
+		byte_stream_copy_from_uint64_little_endian(
+		 &( metadata_data[ 64 + actual_offset + 40 ] ),
+		 encrypted_metadata2_block_number );
+	}
+	/* Write corrected metadata to destination */
+	if( lseek( dump_handle->destination_fd, destination_offset, SEEK_SET ) == (off_t) -1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_SEEK_FAILED,
+		 "%s: unable to seek to destination offset: 0x%08" PRIx64 ".",
+		 function,
+		 destination_offset );
+
+		goto on_error;
+	}
+	write_count = write(
+	               dump_handle->destination_fd,
+	               metadata_data,
+	               dump_handle->metadata_size );
+
+	if( write_count != (ssize_t) dump_handle->metadata_size )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_WRITE_FAILED,
+		 "%s: unable to write metadata.",
+		 function );
+
+		goto on_error;
+	}
+	dump_handle->bytes_copied += dump_handle->metadata_size;
+
+	memory_free( metadata_data );
+
+	return( 1 );
+
+on_error:
+	if( metadata_data != NULL )
+	{
+		memory_free( metadata_data );
+	}
+	return( -1 );
+}
+
+/* Writes volume header with corrected metadata offsets for compact dumps
+ * Returns 1 if successful or -1 on error
+ */
+int dump_handle_write_corrected_volume_header(
+     dump_handle_t *dump_handle,
+     libcerror_error_t **error )
+{
+	uint8_t volume_header_data[ FVDE_VOLUME_HEADER_SIZE ];
+	static char *function     = "dump_handle_write_corrected_volume_header";
+	uint64_t compact_offset   = 512;
+	ssize_t read_count        = 0;
+	ssize_t write_count       = 0;
+	int metadata_index        = 0;
+
+	if( dump_handle == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid dump handle.",
+		 function );
+
+		return( -1 );
+	}
+	/* Read volume header from source */
+	if( lseek( dump_handle->source_fd, 0, SEEK_SET ) == (off_t) -1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_SEEK_FAILED,
+		 "%s: unable to seek to volume header.",
+		 function );
+
+		return( -1 );
+	}
+	read_count = read(
+	              dump_handle->source_fd,
+	              volume_header_data,
+	              FVDE_VOLUME_HEADER_SIZE );
+
+	if( read_count != FVDE_VOLUME_HEADER_SIZE )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_READ_FAILED,
+		 "%s: unable to read volume header.",
+		 function );
+
+		return( -1 );
+	}
+	/* Update metadata block offsets for compact layout */
+	for( metadata_index = 0;
+	     metadata_index < 4;
+	     metadata_index++ )
+	{
+		uint64_t metadata_block_number = compact_offset / dump_handle->block_size;
+
+		/* Write block number at offset 104 + (metadata_index * 8) */
+		byte_stream_copy_from_uint64_little_endian(
+		 &( volume_header_data[ 104 + ( metadata_index * 8 ) ] ),
+		 metadata_block_number );
+
+		if( dump_handle->verbose != 0 )
+		{
+			fprintf(
+			 stdout,
+			 "Correcting metadata %d block number: %" PRIu64 " (offset 0x%08" PRIx64 ")\n",
+			 metadata_index + 1,
+			 metadata_block_number,
+			 compact_offset );
+		}
+		compact_offset += dump_handle->metadata_size;
+	}
+	/* Write corrected volume header to destination */
+	if( lseek( dump_handle->destination_fd, 0, SEEK_SET ) == (off_t) -1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_SEEK_FAILED,
+		 "%s: unable to seek to destination.",
+		 function );
+
+		return( -1 );
+	}
+	write_count = write(
+	               dump_handle->destination_fd,
+	               volume_header_data,
+	               FVDE_VOLUME_HEADER_SIZE );
+
+	if( write_count != FVDE_VOLUME_HEADER_SIZE )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_WRITE_FAILED,
+		 "%s: unable to write volume header.",
+		 function );
+
+		return( -1 );
+	}
+	dump_handle->bytes_copied += FVDE_VOLUME_HEADER_SIZE;
+
+	return( 1 );
+}
+
 /* Performs the dump operation
  * Returns 1 if successful or -1 on error
  */
@@ -933,26 +1195,44 @@ int dump_handle_dump(
 	current_offset = 0;
 
 	/* Copy volume header (512 bytes at offset 0) */
-	if( dump_handle_copy_region(
-	     dump_handle,
-	     0,
-	     current_offset,
-	     FVDE_VOLUME_HEADER_SIZE,
-	     "volume header",
-	     error ) != 1 )
-	{
-		libcerror_error_set(
-		 error,
-		 LIBCERROR_ERROR_DOMAIN_IO,
-		 LIBCERROR_IO_ERROR_WRITE_FAILED,
-		 "%s: unable to copy volume header.",
-		 function );
-
-		return( -1 );
-	}
 	if( dump_handle->compact != 0 )
 	{
+		/* In compact mode, write corrected volume header with adjusted metadata offsets */
+		if( dump_handle_write_corrected_volume_header(
+		     dump_handle,
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to write corrected volume header.",
+			 function );
+
+			return( -1 );
+		}
 		current_offset += FVDE_VOLUME_HEADER_SIZE;
+	}
+	else
+	{
+		/* In normal mode, just copy the volume header as-is */
+		if( dump_handle_copy_region(
+		     dump_handle,
+		     0,
+		     current_offset,
+		     FVDE_VOLUME_HEADER_SIZE,
+		     "volume header",
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to copy volume header.",
+			 function );
+
+			return( -1 );
+		}
 	}
 	/* Copy metadata regions */
 	for( metadata_index = 0;
@@ -967,11 +1247,16 @@ int dump_handle_dump(
 
 		if( dump_handle->compact != 0 )
 		{
-			if( dump_handle_copy_region(
+			/* In compact mode, write corrected metadata with adjusted encrypted metadata offsets */
+			uint64_t compact_encrypted_metadata1_offset = 512 + ( 4 * dump_handle->metadata_size );
+			uint64_t compact_encrypted_metadata2_offset = compact_encrypted_metadata1_offset + dump_handle->encrypted_metadata_size;
+
+			if( dump_handle_write_corrected_metadata(
 			     dump_handle,
 			     (off64_t) dump_handle->metadata_offsets[ metadata_index ],
 			     current_offset,
-			     dump_handle->metadata_size,
+			     compact_encrypted_metadata1_offset,
+			     compact_encrypted_metadata2_offset,
 			     region_name,
 			     error ) != 1 )
 			{
@@ -979,7 +1264,7 @@ int dump_handle_dump(
 				 error,
 				 LIBCERROR_ERROR_DOMAIN_IO,
 				 LIBCERROR_IO_ERROR_WRITE_FAILED,
-				 "%s: unable to copy %s.",
+				 "%s: unable to write corrected %s.",
 				 function,
 				 region_name );
 
