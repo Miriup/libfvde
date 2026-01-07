@@ -1068,6 +1068,31 @@ int dump_handle_write_corrected_metadata(
 			byte_stream_copy_from_uint64_little_endian(
 			 &( metadata_data[ 64 + actual_offset + 40 ] ),
 			 encrypted_metadata2_block_number );
+
+			/* Recalculate metadata block checksum after modifications
+			 * Metadata block structure:
+			 * - Offset 0-3: checksum (4 bytes)
+			 * - Offset 4-7: initial value (4 bytes, 0xffffffff)
+			 * - Offset 8-8191: data (8184 bytes)
+			 */
+			uint32_t initial_value = 0xffffffffUL;
+			uint32_t calculated_checksum = dump_handle_calculate_weak_crc32(
+			                                &( metadata_data[ 8 ] ),
+			                                dump_handle->metadata_size - 8,
+			                                initial_value );
+
+			/* Write the recalculated checksum */
+			byte_stream_copy_from_uint32_little_endian(
+			 &( metadata_data[ 0 ] ),
+			 calculated_checksum );
+
+			if( dump_handle->verbose != 0 )
+			{
+				fprintf(
+				 stdout,
+				 "  Recalculated metadata block checksum: 0x%08" PRIx32 "\n",
+				 calculated_checksum );
+			}
 		}
 	}
 	/* Write corrected metadata to destination */
