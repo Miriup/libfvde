@@ -40,6 +40,8 @@
 /* Include internal libfvde headers for segment descriptor access */
 #include "../libfvde/libfvde_segment_descriptor.h"
 #include "../libfvde/libfvde_logical_volume_descriptor.h"
+#include "../libfvde/libfvde_logical_volume.h"
+#include "../libfvde/libfvde_volume_data_handle.h"
 
 /* Forward declarations for internal libfvde structures */
 typedef struct libfvde_volume_header libfvde_volume_header_t;
@@ -1709,7 +1711,6 @@ int check_handle_mark_metadata_reserved(
 	};
 	libfvde_internal_volume_t *internal_volume = NULL;
 	libfvde_logical_volume_t *logical_volume = NULL;
-	libfvde_logical_volume_descriptor_t *logical_volume_descriptor = NULL;
 	static char *function                      = "check_handle_mark_metadata_reserved";
 	uint64_t metadata_size                     = 0;
 	uint64_t volume_offset                     = 0;
@@ -1878,6 +1879,8 @@ int check_handle_mark_metadata_reserved(
 		     logical_volume_index < number_of_logical_volumes;
 		     logical_volume_index++ )
 		{
+			libfvde_internal_logical_volume_t *internal_logical_volume = NULL;
+
 			if( libfvde_volume_group_get_logical_volume_by_index(
 			     check_handle->volume_group,
 			     logical_volume_index,
@@ -1894,24 +1897,13 @@ int check_handle_mark_metadata_reserved(
 
 				goto on_error;
 			}
-			if( libfvde_logical_volume_get_logical_volume_descriptor(
-			     logical_volume,
-			     &logical_volume_descriptor,
-			     error ) != 1 )
-			{
-				libcerror_error_set(
-				 error,
-				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
-				 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
-				 "%s: unable to retrieve logical volume descriptor for volume: %d.",
-				 function,
-				 logical_volume_index );
+			/* Cast to internal logical volume to access volume_data_handle */
+			internal_logical_volume = (libfvde_internal_logical_volume_t *) logical_volume;
 
-				goto on_error;
-			}
-			if( logical_volume_descriptor != NULL )
+			if( internal_logical_volume != NULL
+			 && internal_logical_volume->volume_data_handle != NULL )
 			{
-				volume_offset = logical_volume_descriptor->volume_offset;
+				volume_offset = internal_logical_volume->volume_data_handle->logical_volume_offset;
 
 				/* LV header is at volume_offset + 1024 (512 bytes) */
 				uint64_t lv_header_offset = volume_offset + 1024;
