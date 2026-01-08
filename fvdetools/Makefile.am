@@ -1,6 +1,7 @@
 AM_CPPFLAGS = \
 	-I../include -I$(top_srcdir)/include \
 	-I../common -I$(top_srcdir)/common \
+	-I../libfvde -I$(top_srcdir)/libfvde \
 	@LIBCERROR_CPPFLAGS@ \
 	@LIBCDATA_CPPFLAGS@ \
 	@LIBCLOCALE_CPPFLAGS@ \
