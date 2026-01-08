@@ -144,6 +144,9 @@ AS_IF(
 dnl Check if libfuse or required headers and functions are available
 AX_LIBFUSE_CHECK_ENABLE
 
+dnl Check if keyutils or required headers and functions are available
+AX_KEYUTILS_CHECK_ENABLE
+
 dnl Check if fvdetools required headers and functions are available
 AX_FVDETOOLS_CHECK_LOCAL
 
@@ -255,6 +258,7 @@ Building:
    AES-ECB support:                           $ac_cv_libcaes_aes_ecb
    AES-XTS support:                           $ac_cv_libcaes_aes_xts
    FUSE support:                              $ac_cv_libfuse
+   keyutils support:                          $ac_cv_keyutils
 
 Features:
    Multi-threading support:                   $ac_cv_libcthreads_multi_threading

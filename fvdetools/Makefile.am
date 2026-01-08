@@ -27,6 +27,10 @@ bin_PROGRAMS = \
 	fvdemount \
 	fvdewipekey
 
+if HAVE_KEYUTILS
+bin_PROGRAMS += fvdedmsetup
+endif
+
 fvdedump_SOURCES = \
 	dump_handle.c dump_handle.h \
 	fvdedump.c \
@@ -185,6 +189,43 @@ fvdewipekey_LDADD = \
 	@LIBCERROR_LIBADD@ \
 	@LIBINTL@
 
+if HAVE_KEYUTILS
+fvdedmsetup_SOURCES = \
+	dmsetup_handle.c dmsetup_handle.h \
+	fvdedmsetup.c \
+	fvdetools_getopt.c fvdetools_getopt.h \
+	fvdetools_i18n.h \
+	fvdetools_input.c fvdetools_input.h \
+	fvdetools_libbfio.h \
+	fvdetools_libcdata.h \
+	fvdetools_libcerror.h \
+	fvdetools_libclocale.h \
+	fvdetools_libcnotify.h \
+	fvdetools_libcpath.h \
+	fvdetools_libcsplit.h \
+	fvdetools_libfvde.h \
+	fvdetools_libuna.h \
+	fvdetools_output.c fvdetools_output.h \
+	fvdetools_signal.c fvdetools_signal.h \
+	fvdetools_unused.h \
+	keyring_handle.c keyring_handle.h \
+	mount_handle.c mount_handle.h
+
+fvdedmsetup_LDADD = \
+	@LIBKEYUTILS_LIBADD@ \
+	@LIBBFIO_LIBADD@ \
+	@LIBCPATH_LIBADD@ \
+	@LIBCFILE_LIBADD@ \
+	@LIBUNA_LIBADD@ \
+	@LIBCSPLIT_LIBADD@ \
+	@LIBCDATA_LIBADD@ \
+	../libfvde/libfvde.la \
+	@LIBCNOTIFY_LIBADD@ \
+	@LIBCLOCALE_LIBADD@ \
+	@LIBCERROR_LIBADD@ \
+	@LIBINTL@
+endif
+
 DISTCLEANFILES = \
 	Makefile \
 	Makefile.in
@@ -200,4 +241,8 @@ splint-local:
 	-splint -preproc -redef $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(fvdemount_SOURCES)
 	@echo "Running splint on fvdewipekey ..."
 	-splint -preproc -redef $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(fvdewipekey_SOURCES)
+if HAVE_KEYUTILS
+	@echo "Running splint on fvdedmsetup ..."
+	-splint -preproc -redef $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(fvdedmsetup_SOURCES)
+endif
 
