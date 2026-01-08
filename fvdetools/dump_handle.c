@@ -1353,16 +1353,39 @@ int dump_handle_dump(
 	}
 	dump_handle->bytes_copied = 0;
 
-	if( dump_handle->compact == 0 )
+	/* In backup mode, use the backup file format instead of sparse file */
+	if( dump_handle->backup_mode != 0 )
 	{
-		/* Create sparse file with full size */
-		if( ftruncate( dump_handle->destination_fd, (off_t) dump_handle->physical_volume_size ) != 0 )
+		/* Write backup header */
+		if( dump_handle_write_backup_header(
+		     dump_handle,
+		     error ) != 1 )
 		{
 			libcerror_error_set(
 			 error,
 			 LIBCERROR_ERROR_DOMAIN_IO,
-			 LIBCERROR_IO_ERROR_GENERIC,
-			 "%s: unable to set destination file size.",
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to write backup header.",
+			 function );
+
+			return( -1 );
+		}
+		fprintf(
+		 stdout,
+		 "Creating backup file...\n\n" );
+
+		/* Write volume header block */
+		if( dump_handle_write_backup_block(
+		     dump_handle,
+		     0,
+		     FVDE_VOLUME_HEADER_SIZE,
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to write volume header block.",
 			 function );
 
 			return( -1 );
@@ -1371,54 +1394,140 @@ int dump_handle_dump(
 		{
 			fprintf(
 			 stdout,
-			 "Created sparse file with size %" PRIu64 " bytes\n\n",
-			 dump_handle->physical_volume_size );
+			 "Wrote volume header block (offset 0x0, length %" PRIu32 ")\n",
+			 FVDE_VOLUME_HEADER_SIZE );
 		}
+		/* Write metadata blocks */
+		for( metadata_index = 0; metadata_index < 4; metadata_index++ )
+		{
+			if( dump_handle_write_backup_block(
+			     dump_handle,
+			     dump_handle->metadata_offsets[ metadata_index ],
+			     dump_handle->metadata_size,
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_IO,
+				 LIBCERROR_IO_ERROR_WRITE_FAILED,
+				 "%s: unable to write metadata %d block.",
+				 function,
+				 metadata_index + 1 );
+
+				return( -1 );
+			}
+			if( dump_handle->verbose != 0 )
+			{
+				fprintf(
+				 stdout,
+				 "Wrote metadata %d block (offset 0x%016" PRIx64 ", length %" PRIu32 ")\n",
+				 metadata_index + 1,
+				 dump_handle->metadata_offsets[ metadata_index ],
+				 dump_handle->metadata_size );
+			}
+		}
+		/* Write encrypted metadata blocks */
+		if( dump_handle->encrypted_metadata1_offset != 0 )
+		{
+			if( dump_handle_write_backup_block(
+			     dump_handle,
+			     dump_handle->encrypted_metadata1_offset,
+			     dump_handle->encrypted_metadata_size,
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_IO,
+				 LIBCERROR_IO_ERROR_WRITE_FAILED,
+				 "%s: unable to write encrypted metadata 1 block.",
+				 function );
+
+				return( -1 );
+			}
+			if( dump_handle->verbose != 0 )
+			{
+				fprintf(
+				 stdout,
+				 "Wrote encrypted metadata 1 block (offset 0x%016" PRIx64 ", length %" PRIu64 ")\n",
+				 dump_handle->encrypted_metadata1_offset,
+				 dump_handle->encrypted_metadata_size );
+			}
+		}
+		if( dump_handle->encrypted_metadata2_offset != 0 )
+		{
+			if( dump_handle_write_backup_block(
+			     dump_handle,
+			     dump_handle->encrypted_metadata2_offset,
+			     dump_handle->encrypted_metadata_size,
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_IO,
+				 LIBCERROR_IO_ERROR_WRITE_FAILED,
+				 "%s: unable to write encrypted metadata 2 block.",
+				 function );
+
+				return( -1 );
+			}
+			if( dump_handle->verbose != 0 )
+			{
+				fprintf(
+				 stdout,
+				 "Wrote encrypted metadata 2 block (offset 0x%016" PRIx64 ", length %" PRIu64 ")\n",
+				 dump_handle->encrypted_metadata2_offset,
+				 dump_handle->encrypted_metadata_size );
+			}
+		}
+		fprintf(
+		 stdout,
+		 "\nBackup complete.\n" );
+		fprintf(
+		 stdout,
+		 "Total bytes written: %" PRIu64 " bytes\n",
+		 dump_handle->bytes_copied );
+
+		return( 1 );
+	}
+
+	/* Create sparse file with full size */
+	if( ftruncate( dump_handle->destination_fd, (off_t) dump_handle->physical_volume_size ) != 0 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_GENERIC,
+		 "%s: unable to set destination file size.",
+		 function );
+
+		return( -1 );
+	}
+	if( dump_handle->verbose != 0 )
+	{
+		fprintf(
+		 stdout,
+		 "Created sparse file with size %" PRIu64 " bytes\n\n",
+		 dump_handle->physical_volume_size );
 	}
 	current_offset = 0;
 
 	/* Copy volume header (512 bytes at offset 0) */
-	if( dump_handle->compact != 0 )
+	if( dump_handle_copy_region(
+	     dump_handle,
+	     0,
+	     current_offset,
+	     FVDE_VOLUME_HEADER_SIZE,
+	     "volume header",
+	     error ) != 1 )
 	{
-		/* In compact mode, write corrected volume header with adjusted metadata offsets */
-		if( dump_handle_write_corrected_volume_header(
-		     dump_handle,
-		     error ) != 1 )
-		{
-			libcerror_error_set(
-			 error,
-			 LIBCERROR_ERROR_DOMAIN_IO,
-			 LIBCERROR_IO_ERROR_WRITE_FAILED,
-			 "%s: unable to write corrected volume header.",
-			 function );
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_WRITE_FAILED,
+		 "%s: unable to copy volume header.",
+		 function );
 
-			return( -1 );
-		}
-		/* In compact mode, metadata blocks must be block-aligned
-		 * Start at block 1 (offset 4096) since block 0 contains volume header
-		 */
-		current_offset = dump_handle->block_size;
-	}
-	else
-	{
-		/* In normal mode, just copy the volume header as-is */
-		if( dump_handle_copy_region(
-		     dump_handle,
-		     0,
-		     current_offset,
-		     FVDE_VOLUME_HEADER_SIZE,
-		     "volume header",
-		     error ) != 1 )
-		{
-			libcerror_error_set(
-			 error,
-			 LIBCERROR_ERROR_DOMAIN_IO,
-			 LIBCERROR_IO_ERROR_WRITE_FAILED,
-			 "%s: unable to copy volume header.",
-			 function );
-
-			return( -1 );
-		}
+		return( -1 );
 	}
 	/* Copy metadata regions */
 	for( metadata_index = 0;
@@ -1431,146 +1540,65 @@ int dump_handle_dump(
 		 "metadata %d",
 		 metadata_index + 1 );
 
-		if( dump_handle->compact != 0 )
+		if( dump_handle_copy_region(
+		     dump_handle,
+		     (off64_t) dump_handle->metadata_offsets[ metadata_index ],
+		     (off64_t) dump_handle->metadata_offsets[ metadata_index ],
+		     dump_handle->metadata_size,
+		     region_name,
+		     error ) != 1 )
 		{
-			/* In compact mode, write corrected metadata with adjusted encrypted metadata offsets
-			 * Metadata starts at block 1 (offset = block_size), so encrypted metadata
-			 * starts after 4 metadata blocks
-			 */
-			uint64_t compact_encrypted_metadata1_offset = dump_handle->block_size + ( 4 * dump_handle->metadata_size );
-			uint64_t compact_encrypted_metadata2_offset = compact_encrypted_metadata1_offset + dump_handle->encrypted_metadata_size;
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to copy %s.",
+			 function,
+			 region_name );
 
-			if( dump_handle_write_corrected_metadata(
-			     dump_handle,
-			     (off64_t) dump_handle->metadata_offsets[ metadata_index ],
-			     current_offset,
-			     compact_encrypted_metadata1_offset,
-			     compact_encrypted_metadata2_offset,
-			     region_name,
-			     error ) != 1 )
-			{
-				libcerror_error_set(
-				 error,
-				 LIBCERROR_ERROR_DOMAIN_IO,
-				 LIBCERROR_IO_ERROR_WRITE_FAILED,
-				 "%s: unable to write corrected %s.",
-				 function,
-				 region_name );
-
-				return( -1 );
-			}
-			current_offset += dump_handle->metadata_size;
-		}
-		else
-		{
-			if( dump_handle_copy_region(
-			     dump_handle,
-			     (off64_t) dump_handle->metadata_offsets[ metadata_index ],
-			     (off64_t) dump_handle->metadata_offsets[ metadata_index ],
-			     dump_handle->metadata_size,
-			     region_name,
-			     error ) != 1 )
-			{
-				libcerror_error_set(
-				 error,
-				 LIBCERROR_ERROR_DOMAIN_IO,
-				 LIBCERROR_IO_ERROR_WRITE_FAILED,
-				 "%s: unable to copy %s.",
-				 function,
-				 region_name );
-
-				return( -1 );
-			}
+			return( -1 );
 		}
 	}
 	/* Copy encrypted metadata 1 */
 	if( dump_handle->encrypted_metadata1_offset != 0 )
 	{
-		if( dump_handle->compact != 0 )
+		if( dump_handle_copy_region(
+		     dump_handle,
+		     (off64_t) dump_handle->encrypted_metadata1_offset,
+		     (off64_t) dump_handle->encrypted_metadata1_offset,
+		     dump_handle->encrypted_metadata_size,
+		     "encrypted metadata 1",
+		     error ) != 1 )
 		{
-			if( dump_handle_copy_region(
-			     dump_handle,
-			     (off64_t) dump_handle->encrypted_metadata1_offset,
-			     current_offset,
-			     dump_handle->encrypted_metadata_size,
-			     "encrypted metadata 1",
-			     error ) != 1 )
-			{
-				libcerror_error_set(
-				 error,
-				 LIBCERROR_ERROR_DOMAIN_IO,
-				 LIBCERROR_IO_ERROR_WRITE_FAILED,
-				 "%s: unable to copy encrypted metadata 1.",
-				 function );
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to copy encrypted metadata 1.",
+			 function );
 
-				return( -1 );
-			}
-			current_offset += dump_handle->encrypted_metadata_size;
-		}
-		else
-		{
-			if( dump_handle_copy_region(
-			     dump_handle,
-			     (off64_t) dump_handle->encrypted_metadata1_offset,
-			     (off64_t) dump_handle->encrypted_metadata1_offset,
-			     dump_handle->encrypted_metadata_size,
-			     "encrypted metadata 1",
-			     error ) != 1 )
-			{
-				libcerror_error_set(
-				 error,
-				 LIBCERROR_ERROR_DOMAIN_IO,
-				 LIBCERROR_IO_ERROR_WRITE_FAILED,
-				 "%s: unable to copy encrypted metadata 1.",
-				 function );
-
-				return( -1 );
-			}
+			return( -1 );
 		}
 	}
 	/* Copy encrypted metadata 2 */
 	if( dump_handle->encrypted_metadata2_offset != 0 )
 	{
-		if( dump_handle->compact != 0 )
+		if( dump_handle_copy_region(
+		     dump_handle,
+		     (off64_t) dump_handle->encrypted_metadata2_offset,
+		     (off64_t) dump_handle->encrypted_metadata2_offset,
+		     dump_handle->encrypted_metadata_size,
+		     "encrypted metadata 2",
+		     error ) != 1 )
 		{
-			if( dump_handle_copy_region(
-			     dump_handle,
-			     (off64_t) dump_handle->encrypted_metadata2_offset,
-			     current_offset,
-			     dump_handle->encrypted_metadata_size,
-			     "encrypted metadata 2",
-			     error ) != 1 )
-			{
-				libcerror_error_set(
-				 error,
-				 LIBCERROR_ERROR_DOMAIN_IO,
-				 LIBCERROR_IO_ERROR_WRITE_FAILED,
-				 "%s: unable to copy encrypted metadata 2.",
-				 function );
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to copy encrypted metadata 2.",
+			 function );
 
-				return( -1 );
-			}
-			current_offset += dump_handle->encrypted_metadata_size;
-		}
-		else
-		{
-			if( dump_handle_copy_region(
-			     dump_handle,
-			     (off64_t) dump_handle->encrypted_metadata2_offset,
-			     (off64_t) dump_handle->encrypted_metadata2_offset,
-			     dump_handle->encrypted_metadata_size,
-			     "encrypted metadata 2",
-			     error ) != 1 )
-			{
-				libcerror_error_set(
-				 error,
-				 LIBCERROR_ERROR_DOMAIN_IO,
-				 LIBCERROR_IO_ERROR_WRITE_FAILED,
-				 "%s: unable to copy encrypted metadata 2.",
-				 function );
-
-				return( -1 );
-			}
+			return( -1 );
 		}
 	}
 	fprintf(
@@ -1581,7 +1609,7 @@ int dump_handle_dump(
 	 "Total bytes copied: %" PRIu64 " bytes\n",
 	 dump_handle->bytes_copied );
 
-	if( dump_handle->compact == 0 )
+	if( dump_handle->backup_mode == 0 )
 	{
 		fprintf(
 		 stdout,
@@ -1589,4 +1617,502 @@ int dump_handle_dump(
 		 dump_handle->physical_volume_size );
 	}
 	return( 1 );
+}
+
+/* Backup file format magic number: "FVDEBAKU" */
+#define FVDEDUMP_BACKUP_MAGIC 0x4656444542414B55ULL
+
+/* Backup file format version */
+#define FVDEDUMP_BACKUP_VERSION 1
+
+/* Writes a backup file header
+ * Returns 1 if successful or -1 on error
+ */
+int dump_handle_write_backup_header(
+     dump_handle_t *dump_handle,
+     libcerror_error_t **error )
+{
+	uint8_t header_data[ 16 ];
+	static char *function = "dump_handle_write_backup_header";
+	ssize_t write_count   = 0;
+
+	if( dump_handle == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid dump handle.",
+		 function );
+
+		return( -1 );
+	}
+	/* Write magic number */
+	byte_stream_copy_from_uint64_little_endian(
+	 &( header_data[ 0 ] ),
+	 FVDEDUMP_BACKUP_MAGIC );
+
+	/* Write version */
+	byte_stream_copy_from_uint32_little_endian(
+	 &( header_data[ 8 ] ),
+	 FVDEDUMP_BACKUP_VERSION );
+
+	/* Write reserved bytes */
+	byte_stream_copy_from_uint32_little_endian(
+	 &( header_data[ 12 ] ),
+	 0 );
+
+	write_count = write(
+	               dump_handle->destination_fd,
+	               header_data,
+	               16 );
+
+	if( write_count != 16 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_WRITE_FAILED,
+		 "%s: unable to write backup header.",
+		 function );
+
+		return( -1 );
+	}
+	return( 1 );
+}
+
+/* Writes a backup data block (offset + length + data)
+ * Returns 1 if successful or -1 on error
+ */
+int dump_handle_write_backup_block(
+     dump_handle_t *dump_handle,
+     uint64_t offset,
+     uint64_t length,
+     libcerror_error_t **error )
+{
+	uint8_t *buffer         = NULL;
+	uint8_t block_header[16];
+	static char *function   = "dump_handle_write_backup_block";
+	ssize_t read_count      = 0;
+	ssize_t write_count     = 0;
+
+	if( dump_handle == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid dump handle.",
+		 function );
+
+		return( -1 );
+	}
+	/* Allocate buffer for data */
+	buffer = (uint8_t *) memory_allocate(
+	                      (size_t) length );
+
+	if( buffer == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_MEMORY,
+		 LIBCERROR_MEMORY_ERROR_INSUFFICIENT,
+		 "%s: unable to create buffer.",
+		 function );
+
+		return( -1 );
+	}
+	/* Read data from source */
+	if( lseek( dump_handle->source_fd, offset, SEEK_SET ) == (off_t) -1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_SEEK_FAILED,
+		 "%s: unable to seek to offset: 0x%08" PRIx64 ".",
+		 function,
+		 offset );
+
+		goto on_error;
+	}
+	read_count = read(
+	              dump_handle->source_fd,
+	              buffer,
+	              (size_t) length );
+
+	if( read_count != (ssize_t) length )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_READ_FAILED,
+		 "%s: unable to read data.",
+		 function );
+
+		goto on_error;
+	}
+	/* Write block header (offset + length) */
+	byte_stream_copy_from_uint64_little_endian(
+	 &( block_header[ 0 ] ),
+	 offset );
+
+	byte_stream_copy_from_uint64_little_endian(
+	 &( block_header[ 8 ] ),
+	 length );
+
+	write_count = write(
+	               dump_handle->destination_fd,
+	               block_header,
+	               16 );
+
+	if( write_count != 16 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_WRITE_FAILED,
+		 "%s: unable to write block header.",
+		 function );
+
+		goto on_error;
+	}
+	/* Write block data */
+	write_count = write(
+	               dump_handle->destination_fd,
+	               buffer,
+	               (size_t) length );
+
+	if( write_count != (ssize_t) length )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_WRITE_FAILED,
+		 "%s: unable to write block data.",
+		 function );
+
+		goto on_error;
+	}
+	dump_handle->bytes_copied += length;
+
+	memory_free( buffer );
+
+	return( 1 );
+
+on_error:
+	if( buffer != NULL )
+	{
+		memory_free( buffer );
+	}
+	return( -1 );
+}
+
+/* Restores a backup file to a sparse file
+ * Returns 1 if successful or -1 on error
+ */
+int dump_handle_restore_backup(
+     dump_handle_t *dump_handle,
+     const system_character_t *source_filename,
+     const system_character_t *destination_filename,
+     libcerror_error_t **error )
+{
+	uint8_t header_data[ 16 ];
+	uint8_t block_header[ 16 ];
+	uint8_t *buffer             = NULL;
+	static char *function       = "dump_handle_restore_backup";
+	uint64_t magic              = 0;
+	uint64_t offset             = 0;
+	uint64_t length             = 0;
+	uint64_t sparse_file_size   = 0;
+	uint64_t total_bytes        = 0;
+	uint32_t version            = 0;
+	int source_fd               = -1;
+	int destination_fd          = -1;
+	int block_count             = 0;
+	ssize_t read_count          = 0;
+	ssize_t write_count         = 0;
+
+	if( dump_handle == NULL )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_ARGUMENTS,
+		 LIBCERROR_ARGUMENT_ERROR_INVALID_VALUE,
+		 "%s: invalid dump handle.",
+		 function );
+
+		return( -1 );
+	}
+	/* Open source backup file */
+#if defined( HAVE_WIDE_SYSTEM_CHARACTER )
+	source_fd = _wopen(
+	             source_filename,
+	             O_RDONLY | O_BINARY,
+	             0644 );
+#else
+	source_fd = open(
+	             source_filename,
+	             O_RDONLY,
+	             0644 );
+#endif
+	if( source_fd == -1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_OPEN_FAILED,
+		 "%s: unable to open source file.",
+		 function );
+
+		goto on_error;
+	}
+	/* Read and validate header */
+	read_count = read(
+	              source_fd,
+	              header_data,
+	              16 );
+
+	if( read_count != 16 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_READ_FAILED,
+		 "%s: unable to read backup header.",
+		 function );
+
+		goto on_error;
+	}
+	byte_stream_copy_to_uint64_little_endian(
+	 &( header_data[ 0 ] ),
+	 magic );
+
+	byte_stream_copy_to_uint32_little_endian(
+	 &( header_data[ 8 ] ),
+	 version );
+
+	if( magic != FVDEDUMP_BACKUP_MAGIC )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_UNSUPPORTED_VALUE,
+		 "%s: unsupported backup file format (magic: 0x%016" PRIx64 ").",
+		 function,
+		 magic );
+
+		goto on_error;
+	}
+	if( version != FVDEDUMP_BACKUP_VERSION )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_UNSUPPORTED_VALUE,
+		 "%s: unsupported backup file version: %" PRIu32 ".",
+		 function,
+		 version );
+
+		goto on_error;
+	}
+	fprintf(
+	 stdout,
+	 "Detected fvdedump backup format (version %" PRIu32 ")\n",
+	 version );
+
+	/* Open destination sparse file */
+#if defined( HAVE_WIDE_SYSTEM_CHARACTER )
+	destination_fd = _wopen(
+	                  destination_filename,
+	                  O_WRONLY | O_CREAT | ( dump_handle->force ? O_TRUNC : O_EXCL ) | O_BINARY,
+	                  0644 );
+#else
+	destination_fd = open(
+	                  destination_filename,
+	                  O_WRONLY | O_CREAT | ( dump_handle->force ? O_TRUNC : O_EXCL ),
+	                  0644 );
+#endif
+	if( destination_fd == -1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_IO,
+		 LIBCERROR_IO_ERROR_OPEN_FAILED,
+		 "%s: unable to open destination file.",
+		 function );
+
+		goto on_error;
+	}
+	fprintf(
+	 stdout,
+	 "Restoring backup blocks...\n" );
+
+	/* Read and restore blocks until EOF */
+	while( 1 )
+	{
+		/* Read block header */
+		read_count = read(
+		              source_fd,
+		              block_header,
+		              16 );
+
+		if( read_count == 0 )
+		{
+			/* EOF reached */
+			break;
+		}
+		if( read_count != 16 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_READ_FAILED,
+			 "%s: unable to read block header.",
+			 function );
+
+			goto on_error;
+		}
+		byte_stream_copy_to_uint64_little_endian(
+		 &( block_header[ 0 ] ),
+		 offset );
+
+		byte_stream_copy_to_uint64_little_endian(
+		 &( block_header[ 8 ] ),
+		 length );
+
+		if( length == 0 || length > 100 * 1024 * 1024 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_VALUE_OUT_OF_BOUNDS,
+			 "%s: invalid block length: %" PRIu64 ".",
+			 function,
+			 length );
+
+			goto on_error;
+		}
+		/* Allocate buffer if needed */
+		if( buffer != NULL )
+		{
+			memory_free( buffer );
+		}
+		buffer = (uint8_t *) memory_allocate(
+		                      (size_t) length );
+
+		if( buffer == NULL )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_MEMORY,
+			 LIBCERROR_MEMORY_ERROR_INSUFFICIENT,
+			 "%s: unable to create buffer.",
+			 function );
+
+			goto on_error;
+		}
+		/* Read block data */
+		read_count = read(
+		              source_fd,
+		              buffer,
+		              (size_t) length );
+
+		if( read_count != (ssize_t) length )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_READ_FAILED,
+			 "%s: unable to read block data.",
+			 function );
+
+			goto on_error;
+		}
+		/* Seek to offset in destination */
+		if( lseek( destination_fd, offset, SEEK_SET ) == (off_t) -1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_SEEK_FAILED,
+			 "%s: unable to seek to offset: 0x%08" PRIx64 ".",
+			 function,
+			 offset );
+
+			goto on_error;
+		}
+		/* Write block data */
+		write_count = write(
+		               destination_fd,
+		               buffer,
+		               (size_t) length );
+
+		if( write_count != (ssize_t) length )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_IO,
+			 LIBCERROR_IO_ERROR_WRITE_FAILED,
+			 "%s: unable to write block data.",
+			 function );
+
+			goto on_error;
+		}
+		total_bytes += length;
+		block_count++;
+
+		/* Track maximum offset for sparse file size */
+		if( offset + length > sparse_file_size )
+		{
+			sparse_file_size = offset + length;
+		}
+		if( dump_handle->verbose != 0 )
+		{
+			fprintf(
+			 stdout,
+			 "Restored block %" PRId32 ": offset 0x%016" PRIx64 ", length %" PRIu64 "\n",
+			 block_count,
+			 offset,
+			 length );
+		}
+	}
+	fprintf(
+	 stdout,
+	 "\nRestore complete.\n" );
+	fprintf(
+	 stdout,
+	 "Blocks restored: %" PRId32 "\n",
+	 block_count );
+	fprintf(
+	 stdout,
+	 "Actual data written: %" PRIu64 " bytes\n",
+	 total_bytes );
+	fprintf(
+	 stdout,
+	 "Sparse file size: %" PRIu64 " bytes\n",
+	 sparse_file_size );
+
+	if( buffer != NULL )
+	{
+		memory_free( buffer );
+	}
+	close( source_fd );
+	close( destination_fd );
+
+	return( 1 );
+
+on_error:
+	if( buffer != NULL )
+	{
+		memory_free( buffer );
+	}
+	if( source_fd != -1 )
+	{
+		close( source_fd );
+	}
+	if( destination_fd != -1 )
+	{
+		close( destination_fd );
+	}
+	return( -1 );
 }
