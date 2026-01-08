@@ -1,0 +1,572 @@
+= fvdedmsetup - FileVault Device Mapper Setup Tool
+:toc:
+:toclevels: 4
+
+:numbered:
+== Overview
+
+`fvdedmsetup` is a Linux-specific command-line utility that integrates FileVault Drive Encrypted (FVDE) volumes with the Linux kernel device-mapper subsystem. Unlike `fvdemount` which uses FUSE to provide userspace filesystem access, `fvdedmsetup` operates at the block device layer by:
+
+1. Unlocking FVDE logical volumes using libfvde
+2. Storing encryption keys securely in the Linux kernel keyring
+3. Generating device-mapper table entries compatible with `dmsetup`
+4. Outputting configuration that creates dm-crypt block devices
+
+This approach enables native kernel-level access to FVDE volumes through the device mapper, allowing standard Linux filesystems and tools to work directly with decrypted block devices.
+
+== Use Cases
+
+* **Forensic Analysis**: Mount FVDE volumes as block devices for forensic tools
+* **System Integration**: Boot from or mount FVDE volumes in initramfs/early boot
+* **Performance**: Kernel-level decryption avoids FUSE overhead
+* **Container/VM Integration**: Expose FVDE volumes as block devices to containers or VMs
+* **Backup/Recovery**: Use standard Linux backup tools (dd, rsync) on decrypted blocks
+
+== Architecture
+
+=== Linux Kernel Keyring Integration
+
+The tool uses the Linux kernel's "logon" key type for secure key storage:
+
+* Keys are stored in the session keyring by default
+* Key format: `logon` type with key description: `fvde:<volume-uuid>`
+* Keys are only accessible to processes with appropriate permissions
+* Keys can be automatically purged when the session ends
+
+Example key storage:
+----
+keyctl add logon fvde:420af122-cf73-4a30-8b0a-a593a65fbef5 <binary-key-data> @s
+----
+
+=== Device Mapper Configuration
+
+The tool generates dm-crypt table entries using the `crypt` target:
+
+----
+0 <size-in-sectors> crypt aes-xts-plain64 :<key-size>:logon:fvde:<uuid> 0 <device> <offset>
+----
+
+Where:
+* `aes-xts-plain64`: Cipher specification matching FVDE's AES-XTS encryption
+* `:<key-size>:logon:fvde:<uuid>`: Key reference using kernel keyring
+* `<device>`: Source block device or file
+* `<offset>`: Sector offset to start of encrypted data
+
+=== Key Derivation
+
+The tool derives the proper dm-crypt key format from FVDE keyring data:
+
+1. **Volume Master Key (VMK)**: 128-bit AES key (16 bytes)
+2. **Volume Tweak Key**: Derived via SHA256(VMK || Logical Volume Family UUID)
+3. **Combined Key**: VMK + Tweak Key (48 bytes total for AES-XTS-256)
+
+Note: While FVDE uses 128-bit AES-XTS, dm-crypt requires both the data key and tweak key to be explicitly provided as a concatenated 48-byte key for proper XTS mode operation.
+
+== Command Line Interface
+
+=== Synopsis
+
+----
+fvdedmsetup [OPTIONS] <source> [<source2> ...]
+----
+
+=== Options
+
+==== Authentication Options
+Same as fvdemount for consistency:
+
+* `-e <plist_path>`: Path to EncryptedRoot.plist.wipekey file
+* `-k <key>`: Volume master key in base16 format (32 hex characters)
+* `-p <password>`: User password for volume unlocking
+* `-r <password>`: Recovery password for volume unlocking
+
+==== Volume Selection Options
+
+* `-o <offset>`: Volume offset in bytes (for disk images or partitions)
+* `-l <name>`: Unlock only the logical volume with this name
+* `-L <uuid>`: Unlock only the logical volume with this UUID
+
+==== Output Options
+
+* `-s, --shell`: Output complete shell commands instead of raw dmsetup table format
+* `-n, --dry-run`: Show what would be done without actually adding keys to keyring
+* `-m, --mapper-name <name>`: Base name for device mapper devices (default: `fvde`)
+
+==== Keyring Options
+
+* `-K, --keyring-id <id>`: Target keyring ID (default: session keyring `@s`)
+* `--no-keyring`: Skip kernel keyring storage, output keys to stdout (INSECURE)
+
+==== Standard Options
+
+* `-u, --unattended`: Unattended mode (no user interaction)
+* `-v, --verbose`: Verbose output to stderr
+* `-h, --help`: Show help message
+* `-V, --version`: Show version information
+
+=== Exit Codes
+
+* `0`: Success - all volumes unlocked and configured
+* `1`: Generic error
+* `2`: Authentication failure (wrong password/key)
+* `3`: Kernel keyring operation failed
+* `4`: Invalid FVDE volume format
+
+== Output Format
+
+=== Default Mode (dmsetup table format)
+
+Output can be directly piped to `dmsetup create` or `dmsetup load`:
+
+----
+# fvdedmsetup -p Password /dev/sda2
+0 327680 crypt aes-xts-plain64 :48:logon:fvde:420af122-cf73-4a30-8b0a-a593a65fbef5 0 /dev/sda2 256
+----
+
+Usage:
+----
+# fvdedmsetup -p Password /dev/sda2 | dmsetup create fvde_volume
+# mount /dev/mapper/fvde_volume /mnt/filevault
+----
+
+=== Shell Command Mode (-s)
+
+Outputs complete executable commands:
+
+----
+# fvdedmsetup -s -p Password /dev/sda2
+echo "0 327680 crypt aes-xts-plain64 :48:logon:fvde:420af122-cf73-4a30-8b0a-a593a65fbef5 0 /dev/sda2 256" | dmsetup create fvde1
+----
+
+=== Verbose Mode (-v)
+
+Provides detailed progress information to stderr:
+
+----
+# fvdedmsetup -v -p Password /dev/sda2
+Opening FVDE volume: /dev/sda2
+Found volume group: TESTLVG
+  Physical volume: 3273a055-3b8b-47e8-b970-df35eecda81b
+    Size: 511 MiB
+    Encryption: AES-XTS
+Logical volume 1: TestLV
+  UUID: 420af122-cf73-4a30-8b0a-a593a65fbef5
+  Size: 160 MiB (327680 sectors)
+  Unlocking... success
+Storing key in kernel keyring:
+  Key descriptor: fvde:420af122-cf73-4a30-8b0a-a593a65fbef5
+  Keyring: @s (session)
+  Key ID: 123456789
+Generating dmsetup table entry:
+0 327680 crypt aes-xts-plain64 :48:logon:fvde:420af122-cf73-4a30-8b0a-a593a65fbef5 0 /dev/sda2 256
+----
+
+=== Multiple Logical Volumes
+
+When a volume group contains multiple logical volumes:
+
+----
+# fvdedmsetup -p Password /dev/sda2
+0 327680 crypt aes-xts-plain64 :48:logon:fvde:420af122-cf73-4a30-8b0a-a593a65fbef5 0 /dev/sda2 256
+0 655360 crypt aes-xts-plain64 :48:logon:fvde:98765432-abcd-1234-5678-1234567890ab 0 /dev/sda2 655616
+----
+
+Each line corresponds to one logical volume and should be piped to separate `dmsetup create` commands:
+
+----
+# fvdedmsetup -p Password /dev/sda2 > /tmp/dm_tables
+# dmsetup create fvde_volume1 < /tmp/dm_tables
+# dmsetup create fvde_volume2 < /tmp/dm_tables
+----
+
+Or using shell mode:
+----
+# fvdedmsetup -s -m fvde_lv -p Password /dev/sda2 | sh
+----
+
+== Security Considerations
+
+=== Key Material Handling
+
+* **Kernel Keyring**: Keys are stored in kernel memory, not exposed in `/proc` or user space
+* **Process Isolation**: Keys in session keyring are only accessible to current session
+* **Automatic Cleanup**: Session keys are purged when session ends (logout/reboot)
+* **No Disk Storage**: Keys never written to disk unless explicitly exported
+
+=== Command Line Security
+
+WARNING: Passwords and keys specified via command line arguments (`-p`, `-k`) are visible in process listings (`ps`, `/proc/cmdline`). For production use:
+
+* Use interactive password prompts (omit `-p` option)
+* Read keys from EncryptedRoot.plist.wipekey (`-e` option)
+* Use environment variables or configuration files (future enhancement)
+
+=== Keyring Permissions
+
+Keys stored in the kernel keyring have permissions that control access:
+
+* Default: `0x3f010000` (possessor: all permissions)
+* Only root or the key owner can read/search/revoke keys
+* Keys can be linked to system keyring for persistence across sessions
+
+Example: Moving key to system keyring (requires root):
+----
+# keyctl link <key-id> @s @u  # Link to user keyring
+----
+
+=== Comparison with FUSE (fvdemount)
+
+[cols="1,1,1"]
+|===
+|Aspect |fvdedmsetup |fvdemount
+
+|Access Level
+|Kernel block device
+|Userspace filesystem
+
+|Key Storage
+|Kernel keyring
+|Process memory
+
+|Performance
+|Native kernel crypto
+|FUSE overhead
+
+|Tool Compatibility
+|All Linux block tools
+|Only filesystem tools
+
+|Privilege Required
+|Root (for dmsetup)
+|User (FUSE mount)
+
+|Key Exposure
+|Kernel-only
+|Process memory dump
+
+|===
+
+== Implementation Requirements
+
+=== Dependencies
+
+* **libfvde**: Core FVDE volume handling (existing)
+* **keyutils**: Linux kernel keyring userspace utilities (`keyctl`, `libkeyutils`)
+* **device-mapper**: dm-crypt kernel module and userspace tools
+* **libcrypto** (OpenSSL): SHA256 hashing for tweak key derivation
+
+Required kernel features:
+* `CONFIG_KEYS=y`
+* `CONFIG_DM_CRYPT=y`
+* `CONFIG_CRYPTO_AES=y`
+* `CONFIG_CRYPTO_XTS=y`
+
+=== Build Configuration
+
+Tool should only be built on Linux systems:
+
+----
+configure.ac:
+  AM_CONDITIONAL([LINUX], [test x$host_os = xlinux-gnu])
+
+fvdetools/Makefile.am:
+  if LINUX
+  bin_PROGRAMS += fvdedmsetup
+  endif
+----
+
+=== Code Structure
+
+Following libfvde patterns:
+
+* `fvdetools/fvdedmsetup.c`: Main entry point
+* `fvdetools/dmsetup_handle.c/h`: Device mapper configuration generation
+* `fvdetools/keyring_handle.c/h`: Linux keyring integration
+* Reuse `mount_handle.c` functions for volume unlocking
+
+=== Error Handling
+
+All errors should be reported to stderr with appropriate error codes:
+
+* Authentication failures: Clear indication of wrong password/key
+* Kernel keyring errors: Check if keyring is available and accessible
+* Volume format errors: Report specific FVDE format issues
+* Device mapper errors: Provide actionable troubleshooting
+
+== Usage Examples
+
+=== Example 1: Basic Usage with Password
+
+----
+# Unlock volume with password and create device mapper device
+$ sudo fvdedmsetup -p MyPassword /dev/sdb2 | sudo dmsetup create fvde_disk
+
+# Mount the decrypted device
+$ sudo mount /dev/mapper/fvde_disk /mnt/filevault
+
+# View the contents
+$ ls /mnt/filevault
+
+# Cleanup
+$ sudo umount /mnt/filevault
+$ sudo dmsetup remove fvde_disk
+$ keyctl purge logon fvde
+----
+
+=== Example 2: Using EncryptedRoot.plist.wipekey
+
+----
+# Extract plist from system
+$ sudo fvdedmsetup -e /var/db/EncryptedRoot.plist.wipekey /dev/sda3 > /tmp/fvde.table
+
+# Create device
+$ sudo dmsetup create fvde_root < /tmp/fvde.table
+
+# Check device
+$ sudo dmsetup status fvde_root
+----
+
+=== Example 3: Direct Key Specification
+
+----
+# Using pre-extracted volume master key (32 hex chars = 128 bits)
+$ sudo fvdedmsetup -k a1b2c3d4e5f678901234567890abcdef /dev/sdb1 | sudo dmsetup create fvde_data
+----
+
+=== Example 4: Shell Command Mode
+
+----
+# Generate and execute commands automatically
+$ sudo fvdedmsetup -s -m fvde_lv -p Password /dev/sdc1 | sudo sh
+
+# Devices created automatically as /dev/mapper/fvde_lv1, /dev/mapper/fvde_lv2, etc.
+$ ls -l /dev/mapper/fvde_lv*
+----
+
+=== Example 5: Disk Image with Offset
+
+----
+# Image file with 20480 byte offset (40 sectors)
+$ sudo fvdedmsetup -o 20480 -p Password filevault.img > fvde.table
+
+# Create loopback device first
+$ sudo losetup -f --show filevault.img
+/dev/loop0
+
+# Adjust table to use loop device
+$ sed 's|filevault.img|/dev/loop0|' fvde.table | sudo dmsetup create fvde_image
+
+$ sudo mount /dev/mapper/fvde_image /mnt/image
+----
+
+=== Example 6: Recovery Mode
+
+----
+# Using recovery password instead of user password
+$ sudo fvdedmsetup -r XXXX-XXXX-XXXX-XXXX-XXXX-XXXX /dev/sdb1 | sudo dmsetup create fvde_recovered
+----
+
+=== Example 7: Persistent System Keyring (survives logout)
+
+----
+# Add key to user keyring (persistent across sessions)
+$ keyid=$(keyctl add logon fvde:test "$(fvdedmsetup --no-keyring -p Password /dev/sdb1 | cut -d: -f7)" @u)
+
+# Create device mapper using persistent key
+$ echo "0 327680 crypt aes-xts-plain64 :48:logon:fvde:test 0 /dev/sdb1 256" | sudo dmsetup create fvde_persist
+----
+
+== Testing & Validation
+
+=== Unit Tests
+
+* Key derivation: Verify VMK + Tweak Key combination matches FVDE format
+* Table generation: Validate dmsetup table syntax
+* Sector offset calculation: Ensure proper alignment
+* Multiple volume handling: Test volume groups with 2+ logical volumes
+
+=== Integration Tests
+
+* End-to-end: Create device, mount filesystem, read/write data
+* Kernel keyring: Verify key storage, retrieval, and cleanup
+* Error conditions: Wrong password, corrupted volume, missing kernel features
+
+=== Compatibility Tests
+
+* Compare decrypted data with fvdemount output
+* Verify filesystem integrity after mount
+* Test with various FVDE volume configurations (Core Storage, single volume, etc.)
+
+== Future Enhancements
+
+=== Planned Features
+
+* **Automatic dmsetup creation** (`--create` flag): Execute dmsetup commands directly
+* **Configuration file support**: Read credentials from secure config file
+* **udev integration**: Automatic device mapper setup on device insertion
+* **systemd unit file**: Integrate with systemd boot process
+* **Key rotation**: Support for updating kernel keyring keys
+
+=== Potential Improvements
+
+* **Multiple keyring types**: Support for `user` and `encrypted` key types
+* **Hardware security module (HSM)**: Integration with TPM for key storage
+* **Disk encryption stack**: Integration with LUKS-over-FVDE scenarios
+* **Monitoring**: dmsetup status reporting and error detection
+
+== Troubleshooting
+
+=== Common Issues
+
+==== Key not found in kernel keyring
+
+----
+device-mapper: crypt: key_spec 'fvde:...' not found
+----
+
+**Solution**: Verify key was added successfully:
+----
+$ keyctl show @s | grep fvde
+----
+
+Re-run fvdedmsetup if key is missing.
+
+==== Permission denied adding to keyring
+
+----
+keyctl_instantiate: Permission denied
+----
+
+**Solution**: Run with sudo or add capability:
+----
+$ sudo setcap cap_sys_admin+ep /usr/local/bin/fvdedmsetup
+----
+
+==== dm-crypt not available
+
+----
+device-mapper: reload ioctl on  failed: No such file or directory
+----
+
+**Solution**: Load dm-crypt module:
+----
+$ sudo modprobe dm-crypt
+----
+
+==== Wrong cipher error
+
+----
+device-mapper: crypt: Cipher aes-xts-plain64 not available
+----
+
+**Solution**: Enable kernel crypto modules:
+----
+$ sudo modprobe aes
+$ sudo modprobe xts
+----
+
+==== Authentication failure
+
+----
+Unable to unlock logical volume 1
+----
+
+**Solution**:
+* Verify password is correct
+* Try recovery password (`-r`)
+* Extract key from plist (`-e`)
+* Check verbose output (`-v`) for specific error
+
+=== Debugging
+
+Enable verbose mode and check each step:
+
+----
+$ sudo fvdedmsetup -v -p Password /dev/sdb1 2>&1 | tee fvde-debug.log
+----
+
+Check kernel logs for device mapper errors:
+----
+$ sudo dmesg | grep -E "dm-crypt|device-mapper"
+----
+
+Verify keyring contents:
+----
+$ keyctl show @s
+$ keyctl list @s
+$ keyctl print <key-id>  # Shows key description, not key data
+----
+
+== References
+
+* Linux kernel keyring: `Documentation/security/keys.txt` in kernel source
+* dm-crypt documentation: `Documentation/device-mapper/dm-crypt.txt`
+* keyutils man pages: `keyctl(1)`, `keyutils(7)`
+* libfvde documentation: `FileVault Drive Encryption (FVDE).asciidoc`
+* Device mapper: https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/
+* AES-XTS mode: NIST SP 800-38E
+
+== Appendix: dmsetup Command Reference
+
+=== Creating Devices
+
+----
+# From stdin
+$ echo "<table>" | dmsetup create <name>
+
+# From file
+$ dmsetup create <name> < table.txt
+
+# With options
+$ dmsetup create --readonly <name> < table.txt
+----
+
+=== Managing Devices
+
+----
+# List devices
+$ dmsetup ls
+
+# Show status
+$ dmsetup status <name>
+
+# Show table
+$ dmsetup table <name>
+
+# Reload table (for online changes)
+$ dmsetup load <name> < new_table.txt
+$ dmsetup resume <name>
+
+# Remove device
+$ dmsetup remove <name>
+----
+
+=== Kernel Keyring Commands
+
+----
+# Add key manually
+$ keyctl add logon fvde:<uuid> <key-data> @s
+
+# List keys
+$ keyctl show @s
+
+# Revoke key
+$ keyctl revoke <key-id>
+
+# Purge all FVDE keys
+$ keyctl purge logon fvde
+----
+
+== Glossary
+
+* **AES-XTS**: AES encryption in XTS-AES mode, used for disk encryption
+* **dm-crypt**: Linux kernel device-mapper crypto target
+* **dmsetup**: Userspace utility for device mapper
+* **FVDE**: FileVault Drive Encryption (FileVault 2)
+* **Kernel Keyring**: Linux kernel subsystem for secure key storage
+* **KEK**: Key Encrypting Key (wraps the VMK)
+* **Logical Volume**: Encrypted volume within FVDE volume group
+* **Physical Volume**: Underlying storage device
+* **VMK**: Volume Master Key (primary encryption key)
+* **Volume Group**: Core Storage container for logical/physical volume mapping
+* **XTS Tweak Key**: Additional key for XTS mode derived from VMK + UUID

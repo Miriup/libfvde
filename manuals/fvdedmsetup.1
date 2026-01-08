@@ -1,0 +1,189 @@
+.Dd January 8, 2026
+.Dt fvdedmsetup
+.Os libfvde
+.Sh NAME
+.Nm fvdedmsetup
+.Nd generates device-mapper configuration for FileVault Drive Encrypted (FVDE) volumes
+.Sh SYNOPSIS
+.Nm fvdedmsetup
+.Op Fl e Ar plist_path
+.Op Fl k Ar key
+.Op Fl o Ar offset
+.Op Fl p Ar password
+.Op Fl r Ar password
+.Op Fl l Ar name
+.Op Fl L Ar uuid
+.Op Fl K Ar keyring_id
+.Op Fl m Ar mapper_name
+.Op Fl s
+.Op Fl n
+.Op Fl huvV
+.Ar sources
+.Sh DESCRIPTION
+.Nm fvdedmsetup
+is a Linux-specific utility that integrates FileVault Drive Encrypted (FVDE) volumes with the Linux kernel device-mapper subsystem.
+Unlike
+.Nm fvdemount
+which uses FUSE for userspace filesystem access,
+.Nm fvdedmsetup
+operates at the block device layer by unlocking FVDE volumes, storing encryption keys in the Linux kernel keyring, and generating device-mapper table entries for use with
+.Xr dmsetup 8 .
+.Pp
+.Nm fvdedmsetup
+is part of the
+.Nm libfvde
+package.
+.Nm libfvde
+is a library to access the FileVault Drive Encryption (FVDE) format
+.Pp
+.Ar sources
+one or more source files or devices.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl e Ar plist_path
+specify the path of the EncryptedRoot.plist.wipekey file
+.It Fl h
+shows this help
+.It Fl k Ar key
+specify the volume master key formatted in base16 (32 hexadecimal characters)
+.It Fl K Ar keyring_id
+specify the target kernel keyring ID (default: session keyring @s)
+.It Fl l Ar name
+unlock only the logical volume with the specified name
+.It Fl L Ar uuid
+unlock only the logical volume with the specified UUID
+.It Fl m Ar mapper_name
+specify base name for device mapper devices (default: fvde)
+.It Fl n
+dry-run mode: show what would be done without modifying kernel keyring
+.It Fl o Ar offset
+specify the volume offset in bytes
+.It Fl p Ar password
+specify the user password
+.It Fl r Ar password
+specify the recovery password
+.It Fl s
+output complete shell commands instead of raw dmsetup table format
+.It Fl u
+unattended mode (disables user interaction)
+.It Fl v
+verbose output to stderr
+.It Fl V
+print version
+.It Fl -no-keyring
+skip kernel keyring storage and output keys to stdout (INSECURE - for debugging only)
+.El
+.Sh ENVIRONMENT
+None
+.Sh FILES
+None
+.Sh EXAMPLES
+.Bd -literal
+# Basic usage with password
+$ sudo fvdedmsetup -p MyPassword /dev/sdb2 | sudo dmsetup create fvde_volume
+$ sudo mount /dev/mapper/fvde_volume /mnt/filevault
+
+# Using EncryptedRoot.plist.wipekey
+$ sudo fvdedmsetup -e /var/db/EncryptedRoot.plist.wipekey /dev/sda3 > fvde.table
+$ sudo dmsetup create fvde_root < fvde.table
+
+# Shell command mode for automatic setup
+$ sudo fvdedmsetup -s -m fvde_lv -p Password /dev/sdc1 | sudo sh
+
+# With disk image and offset
+$ sudo fvdedmsetup -o 20480 -p Password filevault.img > fvde.table
+
+# Verbose mode for troubleshooting
+$ sudo fvdedmsetup -v -p Password /dev/sdb1 2>&1 | tee debug.log
+
+# Cleanup after use
+$ sudo dmsetup remove fvde_volume
+$ keyctl purge logon fvde
+
+.Ed
+.Sh LINUX KERNEL INTEGRATION
+.Nm fvdedmsetup
+requires the following Linux kernel features:
+.Bl -bullet -compact
+.It
+Kernel keyring support (CONFIG_KEYS=y)
+.It
+Device mapper crypto target (CONFIG_DM_CRYPT=y)
+.It
+AES and XTS cipher support (CONFIG_CRYPTO_AES=y, CONFIG_CRYPTO_XTS=y)
+.El
+.Pp
+Encryption keys are stored in the Linux kernel keyring using the "logon" key type with the description format:
+.Bd -literal -offset indent
+fvde:<logical-volume-uuid>
+.Ed
+.Pp
+Keys are stored in the session keyring (@s) by default and are automatically purged when the session ends.
+To persist keys across sessions, use the
+.Fl K
+option to specify a user or system keyring.
+.Pp
+The tool generates dm-crypt table entries in the format:
+.Bd -literal -offset indent
+0 <size> crypt aes-xts-plain64 :<keysize>:logon:fvde:<uuid> 0 <device> <offset>
+.Ed
+.Sh SECURITY CONSIDERATIONS
+.Bl -bullet
+.It
+Encryption keys are stored securely in kernel memory via the kernel keyring, not in userspace
+.It
+Keys are only accessible to processes with appropriate permissions (typically root)
+.It
+Session keyring keys are automatically purged on logout or reboot
+.It
+Command-line passwords
+.Pq Fl p , Fl r
+are visible in process listings
+.Pq see Xr ps 1
+\- for production use, omit these flags to be prompted interactively
+.It
+Requires root privileges to create device-mapper devices
+.El
+.Sh EXIT STATUS
+.Bl -tag -width Ds
+.It 0
+Success - all volumes unlocked and configured
+.It 1
+Generic error
+.It 2
+Authentication failure (wrong password or key)
+.It 3
+Kernel keyring operation failed
+.It 4
+Invalid FVDE volume format
+.El
+.Sh DIAGNOSTICS
+Errors, verbose and debug output are printed to stderr when verbose output
+.Fl v
+is enabled.
+Verbose and debug output are only printed when enabled at compilation.
+.Pp
+Common issues:
+.Bl -bullet
+.It
+"Key not found in kernel keyring" - verify key was added with: keyctl show @s | grep fvde
+.It
+"Permission denied adding to keyring" - requires root or CAP_SYS_ADMIN capability
+.It
+"dm-crypt not available" - load module with: modprobe dm-crypt
+.It
+"Cipher not available" - load modules with: modprobe aes && modprobe xts
+.El
+.Sh BUGS
+Please report bugs of any kind on the project issue tracker: https://github.com/libyal/libfvde/issues
+.Sh AUTHOR
+These man pages were written by Joachim Metz.
+.Sh COPYRIGHT
+Copyright (C) 2011-2025, Joachim Metz <joachim.metz@gmail.com>.
+This is free software; see the source for copying conditions. There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+.Sh SEE ALSO
+.Xr fvdemount 1 ,
+.Xr fvdeinfo 1 ,
+.Xr dmsetup 8 ,
+.Xr keyctl 1
