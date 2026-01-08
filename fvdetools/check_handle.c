@@ -40,13 +40,13 @@
 /* Include internal libfvde headers for segment descriptor access */
 #include "../libfvde/libfvde_segment_descriptor.h"
 #include "../libfvde/libfvde_logical_volume_descriptor.h"
-#include "../libfvde/libfvde_logical_volume.h"
-#include "../libfvde/libfvde_volume_data_handle.h"
 
 /* Forward declarations for internal libfvde structures */
 typedef struct libfvde_volume_header libfvde_volume_header_t;
 typedef struct libfvde_metadata libfvde_metadata_t;
 typedef struct libfvde_internal_volume libfvde_internal_volume_t;
+typedef struct libfvde_volume_data_handle libfvde_volume_data_handle_t;
+typedef struct libfvde_internal_logical_volume libfvde_internal_logical_volume_t;
 
 /* Minimal internal structure definitions needed for metadata access */
 struct libfvde_volume_header
@@ -112,6 +112,32 @@ struct libfvde_internal_volume
 {
 	libfvde_volume_header_t *volume_header;
 	libfvde_metadata_t *metadata;
+	/* Additional fields exist but we don't need to list them all */
+};
+
+struct libfvde_volume_data_handle
+{
+	/* We only need logical_volume_offset at a specific offset
+	 * The actual structure has more fields, but we access by casting
+	 */
+	void *io_handle;  /* Placeholder - actual type is libfvde_io_handle_t */
+	off64_t logical_volume_offset;
+	/* Additional fields exist but we don't need to list them all */
+};
+
+struct libfvde_internal_logical_volume
+{
+	/* Structure must match actual libfvde_internal_logical_volume layout
+	 * We only need volume_data_handle but must preserve field offsets
+	 */
+	void *io_handle;                      /* libfvde_io_handle_t */
+	void *file_io_pool;                   /* libbfio_pool_t */
+	void *logical_volume_descriptor;      /* libfvde_logical_volume_descriptor_t */
+	void *encrypted_metadata;             /* libfvde_encrypted_metadata_t */
+	void *encrypted_root_plist;           /* libfvde_encryption_context_plist_t */
+	off64_t current_offset;
+	size64_t volume_size;
+	libfvde_volume_data_handle_t *volume_data_handle;  /* This is the field we need */
 	/* Additional fields exist but we don't need to list them all */
 };
 
