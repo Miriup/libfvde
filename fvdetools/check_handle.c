@@ -1708,10 +1708,15 @@ int check_handle_mark_metadata_reserved(
 		"Metadata block 4"
 	};
 	libfvde_internal_volume_t *internal_volume = NULL;
+	libfvde_logical_volume_t *logical_volume = NULL;
+	libfvde_logical_volume_descriptor_t *logical_volume_descriptor = NULL;
 	static char *function                      = "check_handle_mark_metadata_reserved";
 	uint64_t metadata_size                     = 0;
+	uint64_t volume_offset                     = 0;
 	uint32_t pv_index                          = 0;
 	int metadata_index                         = 0;
+	int logical_volume_index                   = 0;
+	int number_of_logical_volumes              = 0;
 
 	if( check_handle == NULL )
 	{
@@ -1745,6 +1750,24 @@ int check_handle_mark_metadata_reserved(
 		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
 		 LIBCERROR_RUNTIME_ERROR_VALUE_MISSING,
 		 "%s: invalid volume - missing volume header.",
+		 function );
+
+		return( -1 );
+	}
+	/* Mark the physical volume header at offset 0 */
+	if( fvdecheck_volume_state_mark_reserved(
+	     check_handle->volume_state,
+	     pv_index,
+	     0,
+	     1,  /* 512 bytes = 1 block of 4096 bytes (rounded up) */
+	     "Physical volume header",
+	     error ) != 1 )
+	{
+		libcerror_error_set(
+		 error,
+		 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+		 LIBCERROR_RUNTIME_ERROR_SET_FAILED,
+		 "%s: unable to mark physical volume header as reserved.",
 		 function );
 
 		return( -1 );
@@ -1834,7 +1857,111 @@ int check_handle_mark_metadata_reserved(
 			}
 		}
 	}
+	/* Mark logical volume headers (at volume_offset + 1024, 512 bytes each) */
+	if( check_handle->volume_group != NULL )
+	{
+		if( libfvde_volume_group_get_number_of_logical_volumes(
+		     check_handle->volume_group,
+		     &number_of_logical_volumes,
+		     error ) != 1 )
+		{
+			libcerror_error_set(
+			 error,
+			 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+			 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+			 "%s: unable to retrieve number of logical volumes.",
+			 function );
+
+			return( -1 );
+		}
+		for( logical_volume_index = 0;
+		     logical_volume_index < number_of_logical_volumes;
+		     logical_volume_index++ )
+		{
+			if( libfvde_volume_group_get_logical_volume_by_index(
+			     check_handle->volume_group,
+			     logical_volume_index,
+			     &logical_volume,
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+				 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+				 "%s: unable to retrieve logical volume: %d.",
+				 function,
+				 logical_volume_index );
+
+				goto on_error;
+			}
+			if( libfvde_logical_volume_get_logical_volume_descriptor(
+			     logical_volume,
+			     &logical_volume_descriptor,
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+				 LIBCERROR_RUNTIME_ERROR_GET_FAILED,
+				 "%s: unable to retrieve logical volume descriptor for volume: %d.",
+				 function,
+				 logical_volume_index );
+
+				goto on_error;
+			}
+			if( logical_volume_descriptor != NULL )
+			{
+				volume_offset = logical_volume_descriptor->volume_offset;
+
+				/* LV header is at volume_offset + 1024 (512 bytes) */
+				uint64_t lv_header_offset = volume_offset + 1024;
+				uint64_t lv_header_start_block = lv_header_offset / check_handle->volume_state->block_size;
+
+				if( fvdecheck_volume_state_mark_reserved(
+				     check_handle->volume_state,
+				     pv_index,
+				     lv_header_start_block,
+				     1,  /* 512 bytes = 1 block of 4096 bytes (rounded up) */
+				     "Logical volume header",
+				     error ) != 1 )
+				{
+					libcerror_error_set(
+					 error,
+					 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+					 LIBCERROR_RUNTIME_ERROR_SET_FAILED,
+					 "%s: unable to mark logical volume header %d as reserved.",
+					 function,
+					 logical_volume_index );
+
+					goto on_error;
+				}
+			}
+			if( libfvde_logical_volume_free(
+			     &logical_volume,
+			     error ) != 1 )
+			{
+				libcerror_error_set(
+				 error,
+				 LIBCERROR_ERROR_DOMAIN_RUNTIME,
+				 LIBCERROR_RUNTIME_ERROR_FINALIZE_FAILED,
+				 "%s: unable to free logical volume: %d.",
+				 function,
+				 logical_volume_index );
+
+				goto on_error;
+			}
+		}
+	}
 	return( 1 );
+
+on_error:
+	if( logical_volume != NULL )
+	{
+		libfvde_logical_volume_free(
+		 &logical_volume,
+		 NULL );
+	}
+	return( -1 );
 }
 
 /* Process volume and build extent state
