@@ -2177,7 +2177,6 @@ int check_handle_lookup_block(
 	uint64_t block_number      = 0;
 	uint64_t byte_offset       = 0;
 	uint32_t pv_index          = 0;
-	uint32_t lv_index          = 0;
 
 	if( check_handle == NULL )
 	{

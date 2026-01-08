@@ -1328,6 +1328,17 @@ int dump_handle_write_corrected_volume_header(
 	return( 1 );
 }
 
+/* Forward declarations for backup functions */
+int dump_handle_write_backup_header(
+     dump_handle_t *dump_handle,
+     libcerror_error_t **error );
+
+int dump_handle_write_backup_block(
+     dump_handle_t *dump_handle,
+     uint64_t offset,
+     uint64_t length,
+     libcerror_error_t **error );
+
 /* Performs the dump operation
  * Returns 1 if successful or -1 on error
  */
