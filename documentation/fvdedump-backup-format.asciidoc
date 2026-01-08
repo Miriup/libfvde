@@ -1,0 +1,250 @@
+= fvdedump Backup Format Specification
+:toc:
+
+== Overview
+
+The fvdedump backup format provides a portable way to transport FileVault Drive Encryption (FVDE) metadata across filesystems that do not support sparse files (such as FAT32, NTFS, or HFS+). The backup file contains only metadata regions, not filesystem data, making it safe for security-sensitive environments.
+
+== Use Cases
+
+* **Transport metadata from HFS+ to Linux/APFS**: Create backup on macOS with HFS+ (no sparse file support), restore on Linux or APFS systems with sparse file support
+* **Archive FVDE metadata**: Store compact metadata dumps for forensic analysis
+* **Cross-platform metadata analysis**: Move metadata between different operating systems
+
+== Workflow
+
+=== Creating a Backup
+
+On a system without sparse file support (e.g., macOS with HFS+):
+
+----
+fvdedump -b /dev/disk0s2 metadata.fvdedump
+----
+
+This creates a compact file (~67MB) containing all FVDE metadata regions.
+
+=== Restoring to Sparse File
+
+On a system with sparse file support (e.g., Linux, macOS with APFS):
+
+----
+fvdedump -r metadata.fvdedump metadata.dump
+----
+
+This creates a sparse file that preserves original offsets and can be analyzed with `fvdeinfo`:
+
+----
+fvdeinfo metadata.dump
+----
+
+== File Format Specification
+
+=== Header Structure
+
+The backup file begins with a 16-byte header:
+
+[options="header"]
+|===
+| Offset | Size | Type | Description
+| 0x00 | 8 bytes | uint64_t | Magic number: 0x4656444542414B55 ("FVDEBAKU")
+| 0x08 | 4 bytes | uint32_t | Format version (currently 1)
+| 0x0C | 4 bytes | uint32_t | Reserved (set to 0)
+|===
+
+The magic number is deliberately chosen to occupy the same bytes as the FVDE volume header checksum, making backup files incompatible with FVDE tools (fail-safe against misuse).
+
+=== Block Structure
+
+Following the header, zero or more data blocks are stored sequentially until EOF. Each block has the following structure:
+
+[options="header"]
+|===
+| Offset | Size | Type | Description
+| 0x00 | 8 bytes | uint64_t | Absolute byte offset in target sparse file
+| 0x08 | 8 bytes | uint64_t | Length of data block in bytes
+| 0x10 | variable | uint8_t[] | Block data (length specified above)
+|===
+
+=== Example Backup File Layout
+
+A typical FVDE metadata backup contains the following blocks:
+
+[options="header"]
+|===
+| Block | Offset | Length | Description
+| 1 | 0x0000000000000000 | 512 | Volume header
+| 2 | 0x000000743c817000 | 4194304 | Metadata block 1
+| 3 | 0x000000743cc17000 | 4194304 | Metadata block 2
+| 4 | 0x000000743d017000 | 4194304 | Metadata block 3
+| 5 | 0x000000743d417000 | 4194304 | Metadata block 4
+| 6 | 0x000000743b017000 | 25165824 | Encrypted metadata 1
+| 7 | 0x0000007439817000 | 25165824 | Encrypted metadata 2
+| 8 | 0x0000000010000000 | 8192 | Logical volume header
+|===
+
+Total backup file size: ~67 MB (actual data only, no sparse regions)
+
+== Implementation Details
+
+=== Backup Mode (`-b`)
+
+When creating a backup, fvdedump:
+
+1. Writes the backup file header with magic number and version
+2. Reads and writes each metadata region:
+   * Volume header (512 bytes at offset 0)
+   * Four metadata blocks (4MB each, at offsets from volume header)
+   * Two encrypted metadata blocks (25MB each, at offsets from metadata)
+   * Logical volume headers (if present, at offsets from encrypted metadata)
+3. For each region, writes: [offset][length][data]
+4. Regions are written sequentially with no padding or alignment
+
+=== Restore Mode (`-r`)
+
+When restoring a backup, fvdedump:
+
+1. Reads and validates the backup file header
+   * Checks magic number matches 0x4656444542414B55
+   * Checks version is supported (currently version 1)
+   * Returns error if validation fails
+2. Reads blocks sequentially until EOF
+3. For each block:
+   * Reads offset and length
+   * Seeks to offset in output file (creates sparse holes automatically)
+   * Writes data at that offset
+4. Closes output file (sparse file with metadata at original offsets)
+
+=== Endianness
+
+All multi-byte integers are stored in little-endian format to match FVDE native format.
+
+=== Error Handling
+
+* **Invalid magic number**: Restore fails immediately if magic number doesn't match
+* **Unsupported version**: Restore fails if version > 1
+* **Read errors**: Restore aborts if backup file is truncated or corrupted
+* **Write errors**: Restore aborts if output filesystem runs out of space
+* **Overlapping blocks**: Restore proceeds (last write wins), but may indicate corruption
+
+== Security Considerations
+
+=== What is Included
+
+Backup files contain:
+
+* Volume headers (encryption metadata, UUIDs, key wrapping data)
+* Metadata blocks (volume structure, transaction IDs)
+* Encrypted metadata blocks (encrypted with volume key, not user password)
+* Logical volume headers (unencrypted volume structure metadata)
+
+=== What is NOT Included
+
+Backup files do NOT contain:
+
+* User filesystem data (files, directories)
+* Encrypted filesystem blocks
+* User data of any kind
+
+The backup contains only the minimum metadata required for FVDE volume analysis and recovery operations.
+
+=== Encryption State
+
+* Metadata blocks: Unencrypted
+* Encrypted metadata blocks: Encrypted with key from volume header (NOT user password)
+* Logical volume headers: Unencrypted
+
+The user password is never required to create or restore backups, only to decrypt actual filesystem data.
+
+== Compatibility
+
+=== Source Systems (Backup)
+
+* macOS (any version with FVDE support)
+* Linux with libfvde installed
+* Any system that can read FVDE volumes
+
+=== Target Systems (Restore)
+
+* Linux (ext4, xfs, btrfs with sparse file support)
+* macOS with APFS
+* Any system with sparse file support in the target filesystem
+
+=== Analysis Tools
+
+Restored sparse files can be analyzed with:
+
+* `fvdeinfo` - Display volume information
+* `fvdecheck` - Verify volume integrity
+* Any libfvde-based tool that works with FVDE volumes
+
+== Example Session
+
+=== Creating Backup on macOS (HFS+)
+
+----
+$ sudo fvdedump -b /dev/disk0s2 fvde-metadata.backup
+fvdedump 20251216
+
+Reading volume header...
+Reading metadata blocks...
+Reading encrypted metadata...
+Reading logical volume headers...
+
+Backup complete.
+Total bytes written: 67109376 bytes
+Regions saved: 8
+Output file: fvde-metadata.backup
+----
+
+=== Transferring to Linux
+
+----
+$ scp fvde-metadata.backup linux-server:/tmp/
+----
+
+=== Restoring on Linux (ext4)
+
+----
+$ fvdedump -r /tmp/fvde-metadata.backup fvde-metadata.dump
+fvdedump 20251216
+
+Reading backup file...
+Detected fvdedump backup format (version 1)
+Restoring 8 regions...
+
+Restore complete.
+Sparse file size: 499248103424 bytes
+Actual data written: 67109376 bytes
+Output file: fvde-metadata.dump
+----
+
+=== Analyzing Restored Dump
+
+----
+$ fvdeinfo fvde-metadata.dump
+FileVault Drive Encryption information:
+	Encryption method		: AES-XTS
+	Volume size			: 465.3 GiB (499248103424 bytes)
+	Logical volume size		: 464.5 GiB (498876809216 bytes)
+	Physical volume identifier	: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+	Logical volume group identifier	: 12345678-abcd-ef01-2345-6789abcdef01
+
+Logical volume: 1 is locked and a password is needed to unlock it.
+----
+
+== Future Enhancements
+
+Potential future additions to the format (would require version bump):
+
+* Compression of data blocks
+* CRC32/SHA256 checksums for integrity verification
+* Optional encryption of backup file with password
+* Metadata about source volume (timestamp, hostname, etc.)
+
+== Revision History
+
+[options="header"]
+|===
+| Version | Date | Description
+| 1 | 2025-01-07 | Initial specification
+|===

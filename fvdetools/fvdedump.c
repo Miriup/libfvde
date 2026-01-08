@@ -65,20 +65,25 @@ void usage_fprint(
 		return;
 	}
 	fprintf( stream, "Use fvdedump to extract FVDE metadata from a FileVault encrypted\n"
-	                 "volume into a sparse file for debugging.\n\n" );
+	                 "volume into a sparse file or portable backup format.\n\n" );
 
-	fprintf( stream, "Usage: fvdedump [ -bcfhvV ] [ -s sample_blocks ] source destination\n\n" );
+	fprintf( stream, "Usage: fvdedump [ -bfhrvV ] [ -s sample_blocks ] source destination\n\n" );
 
-	fprintf( stream, "\tsource:      the source file or block device\n" );
+	fprintf( stream, "\tsource:      the source file, block device, or backup file\n" );
 	fprintf( stream, "\tdestination: the destination file for the metadata dump\n\n" );
 
-	fprintf( stream, "\t-b:          copy only best metadata (highest transaction ID)\n" );
-	fprintf( stream, "\t-c:          compact mode (non-sparse file with adjusted offsets)\n" );
+	fprintf( stream, "\t-b:          backup mode (create portable non-sparse backup)\n" );
+	fprintf( stream, "\t-r:          restore mode (restore backup to sparse file)\n" );
 	fprintf( stream, "\t-f:          force overwrite of destination if it exists\n" );
 	fprintf( stream, "\t-h:          shows this help\n" );
 	fprintf( stream, "\t-s:          include first N encrypted filesystem blocks (default: 0)\n" );
 	fprintf( stream, "\t-v:          verbose output to stderr\n" );
 	fprintf( stream, "\t-V:          print version\n" );
+	fprintf( stream, "\n" );
+	fprintf( stream, "Modes:\n" );
+	fprintf( stream, "\tDefault:     Create sparse file with metadata at original offsets\n" );
+	fprintf( stream, "\tBackup (-b): Create portable backup file (for filesystems without sparse support)\n" );
+	fprintf( stream, "\tRestore (-r): Restore backup file to sparse file\n" );
 }
 
 /* Signal handler for fvdedump
@@ -139,8 +144,8 @@ int main( int argc, char * const argv[] )
 	system_character_t *option_sample_blocks  = NULL;
 	char *program                             = "fvdedump";
 	system_integer_t option                   = 0;
-	int best_metadata_only                    = 0;
-	int compact_mode                          = 0;
+	int backup_mode                           = 0;
+	int restore_mode                          = 0;
 	int force_overwrite                       = 0;
 	int sample_blocks                         = 0;
 	int verbose                               = 0;
@@ -178,7 +183,7 @@ int main( int argc, char * const argv[] )
 	while( ( option = fvdetools_getopt(
 	                   argc,
 	                   argv,
-	                   _SYSTEM_STRING( "bcfhs:vV" ) ) ) != (system_integer_t) -1 )
+	                   _SYSTEM_STRING( "bfhrs:vV" ) ) ) != (system_integer_t) -1 )
 	{
 		switch( option )
 		{
@@ -195,12 +200,12 @@ int main( int argc, char * const argv[] )
 				return( EXIT_FAILURE );
 
 			case (system_integer_t) 'b':
-				best_metadata_only = 1;
+				backup_mode = 1;
 
 				break;
 
-			case (system_integer_t) 'c':
-				compact_mode = 1;
+			case (system_integer_t) 'r':
+				restore_mode = 1;
 
 				break;
 
@@ -258,6 +263,14 @@ int main( int argc, char * const argv[] )
 	}
 	destination = argv[ optind ];
 
+	if( backup_mode && restore_mode )
+	{
+		fprintf(
+		 stderr,
+		 "Cannot specify both backup (-b) and restore (-r) modes.\n" );
+
+		return( EXIT_FAILURE );
+	}
 	if( option_sample_blocks != NULL )
 	{
 #if defined( HAVE_WIDE_SYSTEM_CHARACTER )
@@ -292,65 +305,86 @@ int main( int argc, char * const argv[] )
 
 		goto on_error;
 	}
-	fvdedump_dump_handle->verbose            = verbose;
-	fvdedump_dump_handle->force              = force_overwrite;
-	fvdedump_dump_handle->best_metadata_only = best_metadata_only;
-	fvdedump_dump_handle->compact            = compact_mode;
-	fvdedump_dump_handle->sample_blocks      = sample_blocks;
+	fvdedump_dump_handle->verbose       = verbose;
+	fvdedump_dump_handle->force         = force_overwrite;
+	fvdedump_dump_handle->backup_mode   = backup_mode;
+	fvdedump_dump_handle->restore_mode  = restore_mode;
+	fvdedump_dump_handle->sample_blocks = sample_blocks;
 
-	if( dump_handle_open_source(
-	     fvdedump_dump_handle,
-	     source,
-	     &error ) != 1 )
+	if( restore_mode )
 	{
-		fprintf(
-		 stderr,
-		 "Unable to open source: %" PRIs_SYSTEM ".\n",
-		 source );
+		/* Restore mode: read backup file and create sparse file */
+		if( dump_handle_restore_backup(
+		     fvdedump_dump_handle,
+		     source,
+		     destination,
+		     &error ) != 1 )
+		{
+			fprintf(
+			 stderr,
+			 "Unable to restore backup from: %" PRIs_SYSTEM ".\n",
+			 source );
 
-		goto on_error;
+			goto on_error;
+		}
 	}
-	if( dump_handle_read_volume_header(
-	     fvdedump_dump_handle,
-	     &error ) != 1 )
+	else
 	{
-		fprintf(
-		 stderr,
-		 "Unable to read volume header.\n" );
+		/* Normal and backup modes: read FVDE volume */
+		if( dump_handle_open_source(
+		     fvdedump_dump_handle,
+		     source,
+		     &error ) != 1 )
+		{
+			fprintf(
+			 stderr,
+			 "Unable to open source: %" PRIs_SYSTEM ".\n",
+			 source );
 
-		goto on_error;
-	}
-	if( dump_handle_read_metadata(
-	     fvdedump_dump_handle,
-	     &error ) != 1 )
-	{
-		fprintf(
-		 stderr,
-		 "Unable to read metadata.\n" );
+			goto on_error;
+		}
+		if( dump_handle_read_volume_header(
+		     fvdedump_dump_handle,
+		     &error ) != 1 )
+		{
+			fprintf(
+			 stderr,
+			 "Unable to read volume header.\n" );
 
-		goto on_error;
-	}
-	if( dump_handle_open_destination(
-	     fvdedump_dump_handle,
-	     destination,
-	     &error ) != 1 )
-	{
-		fprintf(
-		 stderr,
-		 "Unable to open destination: %" PRIs_SYSTEM ".\n",
-		 destination );
+			goto on_error;
+		}
+		if( dump_handle_read_metadata(
+		     fvdedump_dump_handle,
+		     &error ) != 1 )
+		{
+			fprintf(
+			 stderr,
+			 "Unable to read metadata.\n" );
 
-		goto on_error;
-	}
-	if( dump_handle_dump(
-	     fvdedump_dump_handle,
-	     &error ) != 1 )
-	{
-		fprintf(
-		 stderr,
-		 "Unable to dump FVDE metadata.\n" );
+			goto on_error;
+		}
+		if( dump_handle_open_destination(
+		     fvdedump_dump_handle,
+		     destination,
+		     &error ) != 1 )
+		{
+			fprintf(
+			 stderr,
+			 "Unable to open destination: %" PRIs_SYSTEM ".\n",
+			 destination );
 
-		goto on_error;
+			goto on_error;
+		}
+		if( dump_handle_dump(
+		     fvdedump_dump_handle,
+		     &error ) != 1 )
+		{
+			fprintf(
+			 stderr,
+			 "Unable to dump FVDE metadata.\n" );
+
+			goto on_error;
+		}
 	}
 	if( dump_handle_close(
 	     fvdedump_dump_handle,

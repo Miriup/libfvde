@@ -82,13 +82,13 @@ struct dump_handle
 	 */
 	int force;
 
-	/* Best metadata only flag
+	/* Backup mode flag (create portable non-sparse backup)
 	 */
-	int best_metadata_only;
+	int backup_mode;
 
-	/* Compact mode flag (non-sparse with adjusted offsets)
+	/* Restore mode flag (restore backup to sparse file)
 	 */
-	int compact;
+	int restore_mode;
 
 	/* Number of sample blocks to include
 	 */
@@ -139,6 +139,12 @@ int dump_handle_read_metadata(
 
 int dump_handle_dump(
      dump_handle_t *dump_handle,
+     libcerror_error_t **error );
+
+int dump_handle_restore_backup(
+     dump_handle_t *dump_handle,
+     const system_character_t *source_filename,
+     const system_character_t *destination_filename,
      libcerror_error_t **error );
 
 #if defined( __cplusplus )
